@@ -21,7 +21,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         {[
-          { label: 'Total Workflows', value: counts.total },
+          { label: 'Total Materials', value: counts.total },
           { label: 'Worksheets', value: counts.worksheet },
           { label: 'Foldables', value: counts.foldable },
           { label: 'Lesson Plans', value: counts.lesson_plan },
@@ -35,12 +35,12 @@ export default function Dashboard() {
 
       <div className="card mb-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-semibold">Recent Workflows</h2>
-          <Link to="/workflows/new" className="btn btn-sm">+ New</Link>
+          <h2 className="font-semibold">Recent Materials</h2>
+          <Link to="/chat" className="btn btn-sm">💬 Chat with MARTY</Link>
         </div>
         {recent.length === 0 ? (
           <p className="text-slate-500 text-sm py-6 text-center">
-            No workflows yet. <Link to="/chat" className="text-blue-400">Chat with MARTY</Link> to create your first one.
+            Nothing here yet. <Link to="/chat" className="text-blue-400">Chat with MARTY</Link> to create your first material.
           </p>
         ) : (
           <table className="w-full text-sm">
@@ -71,7 +71,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { to: '/chat', emoji: '💬', title: 'Chat with MARTY', sub: 'Create anything' },
-          { to: '/workflows/new', emoji: '📝', title: 'New Workflow', sub: 'Structured workflow' },
+          { to: '/workflows', emoji: '📂', title: 'My Materials', sub: 'Everything MARTY made' },
           { to: '/documents', emoji: '📚', title: 'Curriculum Docs', sub: 'Manage references' },
           { to: '/students', emoji: '👥', title: 'Class Roster', sub: 'Manage students' },
         ].map(q => (

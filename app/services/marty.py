@@ -482,13 +482,16 @@ def run_agent(conversation_id: int, user_message: str):
         display_content=user_message,
     )
 
-    # Auto-title the conversation on first user message
+    # Auto-title only if still using the default title (frontend may have set a nicer one)
     db = get_db()
+    conv_row = db.execute("SELECT title FROM conversations WHERE id=?", (conversation_id,)).fetchone()
     msg_count = db.execute("SELECT COUNT(*) FROM messages WHERE conversation_id=?", (conversation_id,)).fetchone()[0]
-    if msg_count <= 1:
-        title = user_message[:60] + ("…" if len(user_message) > 60 else "")
-        db.execute("UPDATE conversations SET title=? WHERE id=?", (title, conversation_id))
-        db.commit()
+    if msg_count <= 1 and conv_row and conv_row["title"] in ("New Chat", "", None):
+        # Skip long system-style prompts that start with a bracketed tag
+        if not user_message.strip().startswith("["):
+            title = user_message[:60] + ("…" if len(user_message) > 60 else "")
+            db.execute("UPDATE conversations SET title=? WHERE id=?", (title, conversation_id))
+            db.commit()
     db.close()
 
     max_iterations = 10

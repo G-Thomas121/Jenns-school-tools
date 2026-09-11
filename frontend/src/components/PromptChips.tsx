@@ -100,11 +100,26 @@ export default function PromptChips({ onSubmit }: Props) {
       ? `\nCurriculum documents to reference: ${selectedDocTitles.join(', ')}`
       : ''
 
-    const shortTitle = [
-      typeVal.replace('a ', '').replace('an ', ''),
-      classVal.replace('for ', ''),
-      focusVals[0] ?? '',
-    ].filter(Boolean).map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' · ')
+    const TYPE_SHORT: Record<string, string> = {
+      'a worksheet': 'Worksheet', 'a foldable': 'Foldable', 'a slideshow': 'Slideshow',
+      'a lesson plan': 'Lesson Plan', 'a study guide': 'Study Guide',
+    }
+    const CLASS_SHORT: Record<string, string> = {
+      'for English 1 (9th grade)': 'E1', 'for English 2 (10th grade)': 'E2',
+      'for both English 1 and English 2': 'Both',
+    }
+    const FOCUS_SHORT: Record<string, string> = {
+      'citing textual evidence': 'Textual Evidence',
+      'vocabulary': 'Vocab',
+      'reading comprehension': 'Reading Comp',
+      'character analysis': 'Character',
+      'theme and symbolism': 'Theme',
+      'a writing activity': 'Writing',
+      'grammar and conventions': 'Grammar',
+      'plot and narrative structure': 'Plot',
+    }
+    const focusPart = focusVals.map(f => FOCUS_SHORT[f] ?? f).join(' + ')
+    const shortTitle = `${TYPE_SHORT[typeVal] ?? typeVal}: ${focusPart} (${CLASS_SHORT[classVal] ?? classVal})`
 
     const hiddenPrompt =
       `[CONTEXT FROM JENN — do not repeat this back verbatim]
