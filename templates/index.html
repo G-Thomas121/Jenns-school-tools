@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Jenn's School Tools — MARTY</title>
+  <link rel="stylesheet" href="/static/css/main.css" />
+</head>
+<body>
+  <div id="app">
+    <nav id="sidebar">
+      <div class="sidebar-header">
+        <span class="logo">MARTY</span>
+        <span style="font-size:10px;color:#475569;display:block;margin-top:2px">Jenn's Teaching Assistant</span>
+      </div>
+      <ul class="nav-links">
+        <li><a href="#/chat" data-page="chat">💬 Chat with MARTY</a></li>
+        <li style="padding:8px 16px 4px;font-size:10px;font-weight:700;letter-spacing:0.08em;color:#475569;text-transform:uppercase;margin-top:4px">Library</li>
+        <li><a href="#/" data-page="dashboard">Dashboard</a></li>
+        <li><a href="#/workflows" data-page="workflows">Saved Workflows</a></li>
+        <li><a href="#/documents" data-page="documents">Curriculum Docs</a></li>
+        <li><a href="#/context" data-page="context">My Context</a></li>
+        <li style="padding:8px 16px 4px;font-size:10px;font-weight:700;letter-spacing:0.08em;color:#475569;text-transform:uppercase">Grading</li>
+        <li><a href="#/students" data-page="students">Class Roster</a></li>
+        <li><a href="#/gradebook" data-page="gradebook">Gradebook</a></li>
+        <li class="nav-bottom"><a href="#/suggestions" data-page="suggestions">Suggestions</a></li>
+      </ul>
+    </nav>
+
+    <main id="content">
+      <div id="page-root"></div>
+    </main>
+  </div>
+
+  <!-- Output preview modal -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-box">
+      <div class="modal-header">
+        <span id="modal-title">Output Preview</span>
+        <div class="modal-actions">
+          <button id="modal-print" class="btn btn-sm">Print / Save PDF</button>
+          <button id="modal-newtab" class="btn btn-sm btn-outline">Open in New Tab</button>
+          <button id="modal-download-html" class="btn btn-sm btn-outline">Download HTML</button>
+          <button id="modal-export-pptx" class="btn btn-sm btn-outline" style="display:none">Export PPTX</button>
+          <button id="modal-close" class="btn btn-sm btn-ghost">Close</button>
+        </div>
+      </div>
+      <iframe id="modal-frame" sandbox="allow-same-origin"></iframe>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js" type="module"></script>
+</body>
+</html>
