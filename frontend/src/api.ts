@@ -69,10 +69,12 @@ export const getGradebookSummary = (grade?: string) =>
 export const getConversations = () => req<Conversation[]>('/api/chat/conversations')
 export const createConversation = () => req<Conversation>('/api/chat/conversations', { method: 'POST' })
 export const deleteConversation = (id: number) => req<{ ok: boolean }>(`/api/chat/conversations/${id}`, { method: 'DELETE' })
+export const updateConversation = (id: number, data: { title?: string }) =>
+  req<Conversation>(`/api/chat/conversations/${id}`, { method: 'PATCH', ...body(data) })
 export const getMessages = (convId: number, since = 0) =>
   req<Message[]>(`/api/chat/conversations/${convId}/messages?since=${since}`)
-export const sendMessage = (convId: number, content: string) =>
-  req<{ ok: boolean }>(`/api/chat/conversations/${convId}/messages`, { method: 'POST', ...body({ content }) })
+export const sendMessage = (convId: number, content: string, hidden = false) =>
+  req<{ ok: boolean }>(`/api/chat/conversations/${convId}/messages`, { method: 'POST', ...body({ content, hidden }) })
 
 export const uploadDoc = async (file: File): Promise<{ message: string; filename: string; doc_id?: number }> => {
   const form = new FormData()

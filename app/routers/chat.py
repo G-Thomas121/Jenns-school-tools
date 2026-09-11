@@ -51,7 +51,7 @@ def get_messages(conv_id: int, since: int = 0):
     rows = db.execute(
         "SELECT id, display_role, display_content, tool_name, created_at "
         "FROM messages WHERE conversation_id=? AND id>? "
-        "AND display_role != 'assistant_silent' "
+        "AND display_role NOT IN ('assistant_silent', 'hidden') "
         "ORDER BY id",
         (conv_id, since)
     ).fetchall()
@@ -59,13 +59,46 @@ def get_messages(conv_id: int, since: int = 0):
     return [dict(r) for r in rows]
 
 
+@router.patch("/conversations/{conv_id}")
+def update_conversation(conv_id: int, body: dict):
+    db = get_db()
+    title = body.get("title", "").strip()
+    if title:
+        db.execute("UPDATE conversations SET title=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", (title, conv_id))
+        db.commit()
+    row = db.execute("SELECT * FROM conversations WHERE id=?", (conv_id,)).fetchone()
+    db.close()
+    if not row:
+        raise HTTPException(404, "Conversation not found")
+    return dict(row)
+
+
 class SendMessage(BaseModel):
     content: str
+    hidden: bool = False
 
 
-def _run_agent_task(conv_id: int, content: str):
+def _run_agent_task(conv_id: int, content: str, hidden: bool = False):
     try:
-        run_agent(conv_id, content)
+        # For hidden messages, override the display_role so they don't appear in chat
+        if hidden:
+            import app.services.marty as marty_module
+            original_save = marty_module._save_message
+
+            def patched_save(conversation_id, api_role, api_content, display_role, display_content, tool_name=None, tool_use_id=None):
+                # First user message in a hidden send should be stored as 'hidden'
+                if api_role == "user" and display_role == "user":
+                    display_role = "hidden"
+                    display_content = ""
+                original_save(conversation_id, api_role, api_content, display_role, display_content, tool_name, tool_use_id)
+
+            marty_module._save_message = patched_save
+            try:
+                run_agent(conv_id, content)
+            finally:
+                marty_module._save_message = original_save
+        else:
+            run_agent(conv_id, content)
     except Exception as e:
         db = get_db()
         db.execute(
@@ -85,7 +118,7 @@ def send_message(conv_id: int, body: SendMessage, background_tasks: BackgroundTa
     db.close()
     if not conv:
         raise HTTPException(404, "Conversation not found")
-    background_tasks.add_task(_run_agent_task, conv_id, body.content)
+    background_tasks.add_task(_run_agent_task, conv_id, body.content, body.hidden)
     return {"ok": True, "status": "processing"}
 
 

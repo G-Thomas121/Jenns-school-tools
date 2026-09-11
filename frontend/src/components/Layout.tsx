@@ -1,7 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { MessageSquare, LayoutDashboard, FolderOpen, BookOpen, Brain, Users, BarChart2, Lightbulb, Plus } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getConversations, createConversation } from '../api'
+import { getConversations } from '../api'
 
 const NavItem = ({ to, icon: Icon, label }: { to: string; icon: React.ElementType; label: string }) => (
   <NavLink
@@ -29,11 +29,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     refetchInterval: 10_000,
   })
 
-  const handleNewChat = async () => {
-    const conv = await createConversation()
-    qc.invalidateQueries({ queryKey: ['conversations'] })
-    navigate(`/chat/${conv.id}`)
-  }
+  const handleNewChat = () => navigate('/chat')
 
   return (
     <div className="flex h-screen overflow-hidden">

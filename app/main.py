@@ -24,7 +24,10 @@ app.add_middleware(
 
 init_db()
 
-app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+# Only mount static files if the directory exists (not present in Docker)
+static_dir = BASE_DIR / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 app.include_router(workflows.router, prefix="/api/workflows", tags=["workflows"])
 app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
@@ -39,4 +42,7 @@ app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 
 @app.get("/{full_path:path}", include_in_schema=False)
 async def spa_fallback(full_path: str):
-    return FileResponse(BASE_DIR / "templates" / "index.html")
+    index = BASE_DIR / "templates" / "index.html"
+    if index.exists():
+        return FileResponse(index)
+    return {"message": "API running. Frontend served separately on port 3000."}

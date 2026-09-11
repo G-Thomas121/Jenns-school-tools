@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Send, Plus, Trash2, Paperclip, FileText, Key, Monitor, Download, Presentation } from 'lucide-react'
+import { Send, Trash2, Paperclip, FileText, Key, Monitor, Download, Presentation } from 'lucide-react'
 import {
   getConversations, createConversation, deleteConversation,
   getMessages, sendMessage, uploadDoc, downloadUrl, pptxUrl,
 } from '../api'
 import OutputModal from '../components/OutputModal'
-import PromptChips from '../components/PromptChips'
+import PromptChips, { type ChipSubmission } from '../components/PromptChips'
+import { updateConversation } from '../api'
 import type { Message, OutputVariant } from '../types'
 
 interface ModalState { workflowId: number; outputId: number; variant: OutputVariant; title: string }
@@ -65,26 +66,11 @@ export default function Chat() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [allMessages, isProcessing])
 
-  const newConv = useMutation({
-    mutationFn: createConversation,
-    onSuccess: (conv) => {
-      qc.invalidateQueries({ queryKey: ['conversations'] })
-      navigate(`/chat/${conv.id}`)
-    },
-  })
-
   const deleteConv = useMutation({
     mutationFn: (id: number) => deleteConversation(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['conversations'] })
       navigate('/chat')
-    },
-  })
-
-  const send = useMutation({
-    mutationFn: (content: string) => sendMessage(convId!, content),
-    onSuccess: () => {
-      setIsProcessing(true)
     },
   })
 
@@ -104,21 +90,43 @@ export default function Chat() {
     },
   })
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     const content = input.trim()
-    if (!content || !convId || isProcessing) return
+    if (!content || isProcessing) return
     setInput('')
-    // Optimistically add user message
+
+    // If no conversation yet, create one first then navigate to it
+    let targetId = convId
+    if (!targetId) {
+      const conv = await createConversation()
+      qc.invalidateQueries({ queryKey: ['conversations'] })
+      targetId = conv.id
+      navigate(`/chat/${targetId}`)
+      // Give the route a moment to settle, then send
+      await new Promise(r => setTimeout(r, 50))
+    }
+
     setAllMessages(prev => [...prev, {
       id: Date.now(),
-      conversation_id: convId,
+      conversation_id: targetId!,
       display_role: 'user',
       display_content: content,
       tool_name: null,
       created_at: new Date().toISOString(),
     }])
-    send.mutate(content)
-  }, [input, convId, isProcessing, send])
+    setIsProcessing(true)
+    sendMessage(targetId!, content).catch((e: Error) => {
+      setIsProcessing(false)
+      setAllMessages(prev => [...prev, {
+        id: Date.now(),
+        conversation_id: targetId!,
+        display_role: 'error',
+        display_content: `Failed to send. Is the backend running? (${e.message})`,
+        tool_name: null,
+        created_at: new Date().toISOString(),
+      }])
+    })
+  }, [input, convId, isProcessing, qc, navigate])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -132,8 +140,8 @@ export default function Chat() {
       {/* Conv list sidebar */}
       <div className="w-52 flex-shrink-0 bg-slate-950 border-r border-slate-800 flex flex-col">
         <div className="p-3">
-          <button onClick={() => newConv.mutate()} className="btn w-full justify-center text-xs gap-1.5">
-            <Plus size={13} /> New Chat
+          <button onClick={() => navigate('/chat')} className="btn w-full justify-center text-xs gap-1.5">
+            + New Chat
           </button>
         </div>
         <div className="flex-1 overflow-y-auto px-2 space-y-0.5">
@@ -169,68 +177,76 @@ export default function Chat() {
         </div>
       </div>
 
-      {/* Chat area */}
+      {/* Chat area — always rendered, conversation created on first send */}
       <div className="flex-1 flex flex-col bg-slate-950">
-        {!convId ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-4 text-slate-500">
-            <div className="w-16 h-16 rounded-full bg-blue-600/20 flex items-center justify-center text-2xl font-bold text-blue-400">M</div>
-            <div className="text-center">
-              <p className="text-lg font-semibold text-slate-300">Hi, I'm MARTY</p>
-              <p className="text-sm mt-1">Start a new chat to create worksheets, lesson plans, and more.</p>
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto flex flex-col">
+          {allMessages.length === 0 && !isProcessing ? (
+            <PromptChips
+              onSubmit={async ({ hiddenPrompt, title }: ChipSubmission) => {
+                let targetId = convId
+                try {
+                  if (!targetId) {
+                    const conv = await createConversation()
+                    qc.invalidateQueries({ queryKey: ['conversations'] })
+                    targetId = conv.id
+                    navigate(`/chat/${targetId}`)
+                    await new Promise(r => setTimeout(r, 50))
+                  }
+                  await updateConversation(targetId, { title })
+                  qc.invalidateQueries({ queryKey: ['conversations'] })
+                  setIsProcessing(true)
+                  await sendMessage(targetId, hiddenPrompt, true)
+                } catch (e) {
+                  setIsProcessing(false)
+                  // Show error inline as a system message
+                  setAllMessages([{
+                    id: Date.now(),
+                    conversation_id: targetId ?? 0,
+                    display_role: 'error',
+                    display_content: `Couldn't reach MARTY. Is the backend running? (${(e as Error).message})`,
+                    tool_name: null,
+                    created_at: new Date().toISOString(),
+                  }])
+                }
+              }}
+            />
+          ) : (
+            <div className="px-6 py-6 space-y-3">
+              {allMessages.map((msg) => (
+                <MessageBubble key={msg.id} msg={msg} onOpenOutput={(wfId, outId, variant, title) =>
+                  setModal({ workflowId: wfId, outputId: outId, variant, title })}
+                />
+              ))}
+              {isProcessing && <TypingIndicator />}
+              <div ref={messagesEndRef} />
             </div>
-            <button onClick={() => newConv.mutate()} className="btn btn-lg mt-2">
-              <Plus size={16} /> New Chat
+          )}
+        </div>
+
+        {/* Input */}
+        <div className="px-6 py-4 border-t border-slate-800">
+          <div className="flex gap-3 items-end">
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              rows={2}
+              disabled={isProcessing}
+              placeholder="Ask MARTY to create a worksheet, lesson plan, revise something…"
+              className="flex-1 input resize-none"
+            />
+            <button
+              onClick={handleSend}
+              disabled={!input.trim() || isProcessing}
+              className="btn h-[72px] px-5"
+            >
+              <Send size={16} />
             </button>
           </div>
-        ) : (
-          <>
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto flex flex-col">
-              {allMessages.length === 0 && !isProcessing ? (
-                <PromptChips
-                  onPrompt={(prompt) => {
-                    setInput(prompt)
-                    inputRef.current?.focus()
-                  }}
-                />
-              ) : (
-                <div className="px-6 py-6 space-y-3">
-                  {allMessages.map((msg) => (
-                    <MessageBubble key={msg.id} msg={msg} onOpenOutput={(wfId, outId, variant, title) =>
-                      setModal({ workflowId: wfId, outputId: outId, variant, title })}
-                    />
-                  ))}
-                  {isProcessing && <TypingIndicator />}
-                  <div ref={messagesEndRef} />
-                </div>
-              )}
-            </div>
-
-            {/* Input */}
-            <div className="px-6 py-4 border-t border-slate-800">
-              <div className="flex gap-3 items-end">
-                <textarea
-                  ref={inputRef}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  rows={2}
-                  disabled={isProcessing}
-                  placeholder="Ask MARTY to create a worksheet, lesson plan, revise something…"
-                  className="flex-1 input resize-none"
-                />
-                <button
-                  onClick={handleSend}
-                  disabled={!input.trim() || isProcessing}
-                  className="btn h-[72px] px-5"
-                >
-                  <Send size={16} />
-                </button>
-              </div>
-              <p className="text-xs text-slate-600 mt-2">Enter to send · Shift+Enter for new line</p>
-            </div>
-          </>
-        )}
+          <p className="text-xs text-slate-600 mt-2">Enter to send · Shift+Enter for new line</p>
+        </div>
       </div>
 
       {modal && (
