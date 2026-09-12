@@ -74,19 +74,32 @@ export default function Chat() {
     },
   })
 
+  const [uploadStatus, setUploadStatus] = useState<{ msg: string; ok: boolean } | null>(null)
+
   const upload = useMutation({
     mutationFn: (file: File) => uploadDoc(file),
+    onMutate: (file: File) => {
+      setUploadStatus({ msg: `Uploading ${file.name}…`, ok: true })
+    },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['docs'] })
-      // Inject a system message into the chat
-      setAllMessages(prev => [...prev, {
-        id: Date.now(),
-        conversation_id: convId ?? 0,
-        display_role: 'system',
-        display_content: `📎 ${data.message}`,
-        tool_name: null,
-        created_at: new Date().toISOString(),
-      }])
+      setUploadStatus({ msg: `✓ ${data.message}`, ok: true })
+      setTimeout(() => setUploadStatus(null), 4000)
+      // Also add a visible system message in the current chat if there is one
+      if (convId) {
+        setAllMessages(prev => [...prev, {
+          id: Date.now(),
+          conversation_id: convId,
+          display_role: 'system',
+          display_content: `📎 Uploaded: ${data.filename}`,
+          tool_name: null,
+          created_at: new Date().toISOString(),
+        }])
+      }
+    },
+    onError: (e: Error) => {
+      setUploadStatus({ msg: `Upload failed: ${e.message}`, ok: false })
+      setTimeout(() => setUploadStatus(null), 6000)
     },
   })
 
@@ -164,13 +177,23 @@ export default function Chat() {
           ))}
         </div>
         <div className="p-3 border-t border-slate-800">
-          <label className="btn btn-outline w-full justify-center text-xs cursor-pointer">
-            <Paperclip size={12} /> Upload Doc
+          {uploadStatus && (
+            <div className={`mb-2 text-xs px-2.5 py-1.5 rounded-md text-center ${
+              uploadStatus.ok
+                ? 'bg-green-500/15 text-green-400 border border-green-500/20'
+                : 'bg-red-500/15 text-red-400 border border-red-500/20'
+            }`}>
+              {uploadStatus.msg}
+            </div>
+          )}
+          <label className={`btn btn-outline w-full justify-center text-xs cursor-pointer ${upload.isPending ? 'opacity-60 cursor-wait' : ''}`}>
+            <Paperclip size={12} /> {upload.isPending ? 'Uploading…' : 'Upload Doc'}
             <input
               ref={fileInputRef}
               type="file"
               accept=".pdf,.docx,.txt,.md"
               className="hidden"
+              disabled={upload.isPending}
               onChange={(e) => { const f = e.target.files?.[0]; if (f) { upload.mutate(f); e.target.value = '' } }}
             />
           </label>
