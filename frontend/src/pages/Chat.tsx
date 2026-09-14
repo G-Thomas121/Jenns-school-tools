@@ -119,14 +119,6 @@ export default function Chat() {
       await new Promise(r => setTimeout(r, 50))
     }
 
-    setAllMessages(prev => [...prev, {
-      id: Date.now(),
-      conversation_id: targetId!,
-      display_role: 'user',
-      display_content: content,
-      tool_name: null,
-      created_at: new Date().toISOString(),
-    }])
     setIsProcessing(true)
     sendMessage(targetId!, content).catch((e: Error) => {
       setIsProcessing(false)
@@ -389,14 +381,41 @@ function OutputActionButtons({ outputId, onOpen }: {
   )
 }
 
+const THINKING_PHASES = [
+  { until: 5,        label: 'Thinking…' },
+  { until: 10,       label: 'Imagining…' },
+  { until: 18,       label: 'Reading documents…' },
+  { until: 27,       label: 'Planning…' },
+  { until: 38,       label: 'Crafting…' },
+  { until: 55,       label: 'Still working…' },
+  { until: 80,       label: 'This is taking a moment…' },
+  { until: Infinity, label: 'Almost there…' },
+]
+
 function TypingIndicator() {
+  const [elapsed, setElapsed] = useState(0)
+
+  useEffect(() => {
+    const id = setInterval(() => setElapsed(s => s + 1), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  const phase = THINKING_PHASES.find(p => elapsed < p.until)!
+  const timeLabel = elapsed >= 5
+    ? `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`
+    : null
+
   return (
     <div className="flex gap-3 items-start slide-up">
       <div className="w-7 h-7 rounded-full bg-blue-700 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">M</div>
-      <div className="bg-slate-800 rounded-2xl rounded-tl-sm px-4 py-3 flex gap-1 items-center">
-        <span className="w-2 h-2 rounded-full bg-blue-500 pulse-1" />
-        <span className="w-2 h-2 rounded-full bg-blue-500 pulse-2" />
-        <span className="w-2 h-2 rounded-full bg-blue-500 pulse-3" />
+      <div className="bg-slate-800 rounded-2xl rounded-tl-sm px-4 py-3 flex gap-3 items-center">
+        <div className="flex gap-1 items-center">
+          <span className="w-2 h-2 rounded-full bg-blue-500 pulse-1" />
+          <span className="w-2 h-2 rounded-full bg-blue-500 pulse-2" />
+          <span className="w-2 h-2 rounded-full bg-blue-500 pulse-3" />
+        </div>
+        <span key={phase.label} className="text-xs text-slate-400 fade-in">{phase.label}</span>
+        {timeLabel && <span className="text-xs text-slate-600 font-mono tabular-nums">{timeLabel}</span>}
       </div>
     </div>
   )

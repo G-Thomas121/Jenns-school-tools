@@ -25,9 +25,25 @@ def parse_document(filepath: str) -> str:
     elif suffix == ".docx":
         try:
             from docx import Document
+            from docx.oxml.ns import qn
             doc = Document(str(path))
-            paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-            text = "\n\n".join(paragraphs)
+            chunks = []
+            for block in doc.element.body:
+                tag = block.tag.split("}")[-1] if "}" in block.tag else block.tag
+                if tag == "p":
+                    t = "".join(r.text for r in block.iter(qn("w:t")))
+                    if t.strip():
+                        chunks.append(t)
+                elif tag == "tbl":
+                    for row in block.iter(qn("w:tr")):
+                        cells = []
+                        for cell in row.iter(qn("w:tc")):
+                            cell_text = "".join(r.text for r in cell.iter(qn("w:t"))).strip()
+                            if cell_text:
+                                cells.append(cell_text)
+                        if cells:
+                            chunks.append(" | ".join(cells))
+            text = "\n\n".join(chunks)
         except Exception as e:
             return f"[Could not parse DOCX {path.name}: {e}]"
 
