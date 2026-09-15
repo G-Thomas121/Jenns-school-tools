@@ -115,6 +115,14 @@ def init_db():
             FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS lesson_topics (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT NOT NULL,
+            grade      TEXT NOT NULL DEFAULT 'both',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE TABLE IF NOT EXISTS conversations (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             title      TEXT NOT NULL DEFAULT 'New Chat',
@@ -144,6 +152,7 @@ def init_db():
         "ALTER TABLE outputs ADD COLUMN slideshow_html TEXT",
         "ALTER TABLE outputs ADD COLUMN status TEXT DEFAULT 'complete'",
         "ALTER TABLE outputs ADD COLUMN slideshow_json TEXT",
+        "ALTER TABLE workflows ADD COLUMN topic_id INTEGER REFERENCES lesson_topics(id)",
     ]:
         try:
             conn.execute(migration)

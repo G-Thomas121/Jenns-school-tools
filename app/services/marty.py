@@ -26,20 +26,38 @@ client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 CURRICULUM_DIR = Path(__file__).parent.parent.parent / "curriculum"
 
 MARTY_SYSTEM = """You are MARTY, an intelligent teaching assistant for Jenn, \
-a 9th and 10th grade English teacher at a U.S. public high school teaching English 1 and English 2.
+a 9th and 10th grade English teacher at a Texas public high school teaching English 1 and English 2.
 
-You help Jenn create classroom materials, lesson plans, and teaching resources. \
-You have tools to read her curriculum documents, generate student worksheets, teacher answer keys, \
-slideshows, and lesson plans — and to save everything so she can download or print it.
+You help Jenn build complete lesson day packages and individual classroom materials. \
+You have tools to read curriculum documents, create and save all material types, and revise existing work.
 
-Guidelines:
-- Be conversational and efficient. Don't over-explain.
-- When creating materials, always generate the student version, teacher answer key, and slideshow \
-  together unless Jenn says otherwise.
-- When creating a lesson plan, include timing for each section.
-- Use read_document to pull in relevant curriculum before generating — don't guess at content.
-- After saving an output, tell Jenn it's ready and what she can do with it (view, download, export to PPTX).
-- If you need clarification (grade level, specific text, length), ask before generating.
+## Material hierarchy
+Everything you build belongs to a LESSON TOPIC. When starting a lesson day session:
+1. Call create_topic first to create the topic record — save the returned topic_id.
+2. Use that topic_id on every subsequent create_material / create_lesson_plan call.
+
+## Creation order for a lesson day
+Always build in this sequence so each piece can reference what already exists:
+  a. Lesson plan (TEKS format — describes the full class flow)
+  b. Bell ringer (if needed) — brief warm-up
+  c. Worksheet and/or foldable — main student activities
+  d. Slideshow — created LAST so it can accurately reference the materials above
+  e. Exit ticket (if needed)
+
+## Coherence rule — critical
+The slideshow must ONLY reference handouts/materials that were actually created in this session.
+When calling create_material for a slideshow, pass sibling_materials listing every material
+name you created earlier in this session. Never mention a worksheet in the slideshow unless
+it appears in sibling_materials.
+
+## Other rules
+- Worksheets and foldables always use variants=["student","teacher"] — always include the teacher key.
+- Bell ringers and exit tickets use variants=["student"] unless Jenn asks otherwise.
+- Standalone slideshows use variants=["slideshow"].
+- Lesson plans use create_lesson_plan (not create_material).
+- Use read_document to pull curriculum content before generating — don't guess.
+- Be concise. Tell Jenn what's ready and what she can do with it.
+- If you need one clarifying question before building, ask it briefly. Don't ask multiple questions.
 - Refer to yourself as MARTY."""
 
 MARTY_TOOLS = [
@@ -74,24 +92,48 @@ MARTY_TOOLS = [
         },
     },
     {
-        "name": "create_material",
+        "name": "create_topic",
         "description": (
-            "Generate classroom material (worksheet, foldable, slideshow, study guide, or custom). "
-            "Always generates student version + teacher answer key + slideshow unless variants specified. "
-            "Returns an output_id for downloading or exporting."
+            "Create a lesson topic record. Call this first at the start of every lesson-day session "
+            "before creating any materials. Returns a topic_id to pass to all subsequent material calls."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "name": {"type": "string", "description": "Name for this workflow/material"},
-                "type": {"type": "string", "enum": ["worksheet", "foldable", "slideshow", "study_guide", "custom"]},
+                "name": {"type": "string", "description": "Lesson topic name, e.g. 'The Most Dangerous Game — Character Motivation'"},
+                "grade": {"type": "string", "enum": ["english1", "english2", "both"]},
+            },
+            "required": ["name", "grade"],
+        },
+    },
+    {
+        "name": "create_material",
+        "description": (
+            "Generate a classroom material. "
+            "Worksheets and foldables always use variants=['student','teacher']. "
+            "Bell ringers and exit tickets use variants=['student']. "
+            "Standalone slideshows use variants=['slideshow'] — create the slideshow LAST and pass sibling_materials "
+            "listing every material already created so it only references what exists. "
+            "Returns an output_id."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Name for this material"},
+                "type": {"type": "string", "enum": ["worksheet", "foldable", "slideshow", "bell_ringer", "exit_ticket", "study_guide", "custom"]},
                 "grade": {"type": "string", "enum": ["english1", "english2", "both"]},
                 "description": {"type": "string", "description": "What to create — topic, learning objective, specific activity"},
                 "doc_ids": {"type": "array", "items": {"type": "integer"}, "description": "Curriculum doc IDs to reference"},
                 "variants": {
                     "type": "array",
                     "items": {"type": "string", "enum": ["student", "teacher", "slideshow"]},
-                    "description": "Which versions to generate. Defaults to all three.",
+                    "description": "Which versions to generate.",
+                },
+                "topic_id": {"type": "integer", "description": "Lesson topic ID from create_topic. Always provide this."},
+                "sibling_materials": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Names of other materials already created in this session (used for slideshow coherence).",
                 },
             },
             "required": ["name", "type", "grade", "description"],
@@ -99,15 +141,21 @@ MARTY_TOOLS = [
     },
     {
         "name": "create_lesson_plan",
-        "description": "Generate a structured lesson plan with objectives, timing, procedure, and differentiation notes.",
+        "description": "Generate a TEKS-aligned lesson plan with timing table and differentiation notes.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "name": {"type": "string", "description": "Name for this lesson plan"},
                 "grade": {"type": "string", "enum": ["english1", "english2", "both"]},
                 "duration": {"type": "string", "description": "Class duration e.g. '50 minutes', '90 minutes'"},
-                "description": {"type": "string", "description": "Topic, standards, learning goal, text being used"},
+                "description": {"type": "string", "description": "Topic, TEKS standards to hit, learning goal, text being used"},
                 "doc_ids": {"type": "array", "items": {"type": "integer"}, "description": "Curriculum docs to reference"},
+                "topic_id": {"type": "integer", "description": "Lesson topic ID from create_topic. Always provide this."},
+                "sibling_materials": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Names of materials being created in this session — include in the Materials section of the plan.",
+                },
             },
             "required": ["name", "grade", "description"],
         },
@@ -141,6 +189,18 @@ MARTY_TOOLS = [
 
 
 # ── Tool implementations ────────────────────────────────────────────────────────
+
+def _tool_create_topic(name: str, grade: str) -> dict:
+    db = get_db()
+    cur = db.execute(
+        "INSERT INTO lesson_topics (name, grade) VALUES (?, ?)",
+        (name, grade)
+    )
+    db.commit()
+    topic_id = cur.lastrowid
+    db.close()
+    return {"topic_id": topic_id, "name": name, "message": f"Topic '{name}' created. Use topic_id={topic_id} in all material calls."}
+
 
 def _tool_list_documents() -> dict:
     db = get_db()
@@ -179,18 +239,28 @@ def _tool_get_roster(grade: str | None = None) -> dict:
     return {"students": [dict(r) for r in rows]}
 
 
-def _tool_create_material(name, type_, grade, description, doc_ids=None, variants=None) -> dict:
+def _tool_create_material(name, type_, grade, description, doc_ids=None, variants=None, topic_id=None, sibling_materials=None) -> dict:
+    # Sensible defaults per type
     if variants is None:
-        variants = ["student", "teacher", "slideshow"]
+        if type_ in ("worksheet", "foldable"):
+            variants = ["student", "teacher"]
+        elif type_ == "slideshow":
+            variants = ["slideshow"]
+        elif type_ in ("bell_ringer", "exit_ticket"):
+            variants = ["student"]
+        else:
+            variants = ["student", "teacher"]
     if doc_ids is None:
         doc_ids = []
 
     db = get_db()
     cur = db.execute(
-        "INSERT INTO workflows (name, type, grade, context, doc_ids) VALUES (?,?,?,?,?)",
-        (name, type_, grade, description, json.dumps(doc_ids))
+        "INSERT INTO workflows (name, type, grade, context, doc_ids, topic_id) VALUES (?,?,?,?,?,?)",
+        (name, type_, grade, description, json.dumps(doc_ids), topic_id)
     )
     workflow_id = cur.lastrowid
+    if topic_id:
+        db.execute("UPDATE lesson_topics SET updated_at=CURRENT_TIMESTAMP WHERE id=?", (topic_id,))
 
     doc_rows = []
     if doc_ids:
@@ -237,16 +307,32 @@ def _tool_create_material(name, type_, grade, description, doc_ids=None, variant
     slideshow_html = None
     slideshow_json_str = None
     if "slideshow" in variants:
+        sibling_section = ""
+        if sibling_materials:
+            sibling_section = (
+                "\n\nThis slideshow is part of a lesson that includes these student materials "
+                "(reference them by name where appropriate):\n"
+                + "\n".join(f"- {m}" for m in sibling_materials)
+            )
+        else:
+            sibling_section = "\n\nDo NOT reference any worksheets or handouts — none were created for this lesson."
+
+        context_html = student_html or f"Lesson topic: {description}"
         slideshow_prompt = (
-            f"Student activity:\n\n{student_html}\n\nAssignment: {name}\n"
-            f"Class: {GRADE_HINTS.get(grade, '')}\n\nCreate the slideshow."
+            f"Assignment: {name}\n"
+            f"Class: {GRADE_HINTS.get(grade, '')}\n"
+            f"Description: {description}\n"
+            f"{sibling_section}\n\n"
+            f"Activity content:\n{context_html[:6000]}\n\nCreate the slideshow."
         )
         slideshow_html = _call_claude(SLIDESHOW_SYSTEM, slideshow_prompt)
         slideshow_json_str = _extract_slide_json(name, slideshow_html, description)
+        # For type=slideshow, store the slideshow as primary content too (for display in OutputModal)
+        primary_html = slideshow_html if not student_html else student_html
         db = get_db()
         db.execute(
-            "UPDATE outputs SET slideshow_html=?, slideshow_json=?, status='complete' WHERE id=?",
-            (slideshow_html, slideshow_json_str, output_id)
+            "UPDATE outputs SET html=?, slideshow_html=?, slideshow_json=?, status='complete' WHERE id=?",
+            (primary_html, slideshow_html, slideshow_json_str, output_id)
         )
         db.commit()
         db.close()
@@ -265,7 +351,7 @@ def _tool_create_material(name, type_, grade, description, doc_ids=None, variant
     }
 
 
-def _tool_create_lesson_plan(name, grade, description, duration="50 minutes", doc_ids=None) -> dict:
+def _tool_create_lesson_plan(name, grade, description, duration="50 minutes", doc_ids=None, topic_id=None, sibling_materials=None) -> dict:
     if doc_ids is None:
         doc_ids = []
 
@@ -285,10 +371,15 @@ def _tool_create_lesson_plan(name, grade, description, duration="50 minutes", do
 
     context_text = "\n".join(f"[{n['category']}] {n['title']}: {n['content']}" for n in context_notes)
 
+    materials_section = ""
+    if sibling_materials:
+        materials_section = "\nMATERIALS BEING CREATED FOR THIS LESSON:\n" + "\n".join(f"- {m}" for m in sibling_materials) + "\n(Include these by name in the Materials and Time Breakdown sections of the plan.)\n"
+
     prompt = (
-        f"Create a detailed lesson plan for Jenn's {GRADE_HINTS.get(grade, '')} class.\n\n"
+        f"Create a TEKS-aligned lesson plan for Jenn's {GRADE_HINTS.get(grade, '')} class.\n\n"
         f"Class duration: {duration}\n"
-        f"Topic / goal: {description}\n\n"
+        f"Topic / goal: {description}\n"
+        f"{materials_section}\n"
         f"STANDING CONTEXT:\n{context_text}\n\n"
         f"CURRICULUM DOCUMENTS:\n{doc_text}"
     )
@@ -297,10 +388,12 @@ def _tool_create_lesson_plan(name, grade, description, duration="50 minutes", do
 
     db = get_db()
     cur = db.execute(
-        "INSERT INTO workflows (name, type, grade, context, doc_ids) VALUES (?,?,?,?,?)",
-        (name, "lesson_plan", grade, description, json.dumps(doc_ids))
+        "INSERT INTO workflows (name, type, grade, context, doc_ids, topic_id) VALUES (?,?,?,?,?,?)",
+        (name, "lesson_plan", grade, description, json.dumps(doc_ids), topic_id)
     )
     workflow_id = cur.lastrowid
+    if topic_id:
+        db.execute("UPDATE lesson_topics SET updated_at=CURRENT_TIMESTAMP WHERE id=?", (topic_id,))
     cur2 = db.execute(
         "INSERT INTO outputs (workflow_id, version, html, status) VALUES (?,1,?,'complete')",
         (workflow_id, html)
@@ -411,15 +504,19 @@ def _execute_tool(name: str, inputs: dict) -> str:
             result = _tool_get_context()
         elif name == "get_roster":
             result = _tool_get_roster(inputs.get("grade"))
+        elif name == "create_topic":
+            result = _tool_create_topic(inputs["name"], inputs["grade"])
         elif name == "create_material":
             result = _tool_create_material(
                 inputs["name"], inputs["type"], inputs["grade"], inputs["description"],
-                inputs.get("doc_ids", []), inputs.get("variants")
+                inputs.get("doc_ids", []), inputs.get("variants"),
+                inputs.get("topic_id"), inputs.get("sibling_materials"),
             )
         elif name == "create_lesson_plan":
             result = _tool_create_lesson_plan(
                 inputs["name"], inputs["grade"], inputs["description"],
-                inputs.get("duration", "50 minutes"), inputs.get("doc_ids", [])
+                inputs.get("duration", "50 minutes"), inputs.get("doc_ids", []),
+                inputs.get("topic_id"), inputs.get("sibling_materials"),
             )
         elif name == "revise_output":
             result = _tool_revise_output(inputs["output_id"], inputs["instructions"], inputs.get("variants"))

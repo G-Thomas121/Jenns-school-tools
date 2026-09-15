@@ -32,8 +32,10 @@ appropriate line spacing, and @media print rules so the document prints well.
 OUTPUT_TYPE_HINTS = {
     "worksheet": "Create a student worksheet with a title, clear directions, and structured activities with answer spaces.",
     "foldable": "Create a foldable study tool. Design it in panels (4 quadrants or tri-fold). Each panel should have a heading and space for student notes or responses.",
-    "slideshow": "Create a multi-slide HTML presentation. Each slide should be in its own <section> with a page-break-after style. Include a title slide.",
+    "slideshow": "Create a multi-slide HTML presentation. Each slide is a <section> with page-break-after. Include a title slide, instruction slides, and a closing slide.",
     "study_guide": "Create a comprehensive study guide with organized sections, key vocabulary, important concepts, and review questions.",
+    "bell_ringer": "Create a short bell ringer warm-up activity (5 minutes max). 3–5 focused questions or a brief writing prompt. Clear instructions at the top.",
+    "exit_ticket": "Create a brief exit ticket (5 minutes max). 3–4 questions that check understanding of today's learning objective. Simple, clean layout with answer spaces.",
     "custom": "Create the classroom material described in the context below.",
 }
 
@@ -119,7 +121,8 @@ Rules:
 - Include a <style> block with clean slide styling: large readable fonts, generous spacing, a consistent color scheme.
 - Slide sequence: (1) Title + objective, (2) Hook or warm-up, (3–N) Step-by-step instruction slides that mirror the student activity, (N+1) Discussion/debrief prompts, (last) Wrap-up or exit ticket.
 - Each slide should have a clear heading and concise bullet points or prompts — not walls of text.
-- This is for the teacher to project in class while walking students through the activity."""
+- This is for the teacher to project in class while walking students through the activity.
+- IMPORTANT: Only reference student handouts or printed materials that are explicitly listed in the context provided. Do not invent or mention worksheets, foldables, or other materials that are not listed."""
 
 REVISE_SYSTEM = """You are editing an existing HTML classroom document.
 
@@ -129,24 +132,39 @@ Rules:
 - Do not add or remove major sections unless specifically asked.
 - The result must be a complete, valid, standalone HTML document."""
 
-LESSON_PLAN_SYSTEM = """You are an expert curriculum planner creating a detailed lesson plan for a \
-U.S. public high school English teacher. Output a single complete HTML document.
+LESSON_PLAN_SYSTEM = """You are creating a TEKS-aligned lesson plan for a Texas high school English teacher. \
+Output a single complete HTML document she can reference when filling in her campus Google Doc template.
 
-Include these sections with clear headings:
-- Lesson Title, Grade, Date, Duration
-- Learning Objectives (numbered, measurable)
-- Standards Alignment (ELA Common Core strand codes)
-- Materials Needed
-- Procedure with timing: Hook/Warm-Up | Direct Instruction | Guided Practice | Independent Practice | Closure
-- Formative Assessment
-- Differentiation / Accommodations
-- Teacher Notes
+Structure the document with these exact sections:
+
+1. HEADER — Lesson title, Class (English 1 / English 2), Grade, Date: __________, Duration: __________
+
+2. TEKS STANDARDS — A clean table:
+   | TEKS Code | Standard Description |
+   Include 2–4 relevant TEKS codes (format: ELA.9.x.X or ELA.10.x.X)
+
+3. LEARNING OBJECTIVE — One sentence: "By the end of this lesson, students will be able to…"
+
+4. MATERIALS — Bulleted list: textbooks, printed handouts (list by name if known), technology, etc.
+
+5. LESSON BREAKDOWN — A table:
+   | Minutes | Phase | Teacher Does / Students Do | Handouts / Materials Used |
+
+   Phases (adjust times to the stated class duration):
+   • Bell Ringer / Warm-Up
+   • Direct Instruction / Mini-Lesson
+   • Guided Practice
+   • Independent or Small-Group Practice
+   • Closure / Exit Ticket
+
+   In the "Handouts / Materials Used" column, only list materials that are explicitly named in the context provided. Do not invent handout names.
+
+6. DIFFERENTIATION — Brief notes: scaffolds for struggling learners, extensions for advanced students, ELL accommodations.
 
 Rules:
 - Output ONLY valid HTML — no markdown fences, no explanation.
-- Include a <style> block. Use a clean two-column layout where helpful (e.g. timing | activity).
-- Include exact time allocations for each procedure step.
-- Print-friendly with @media print rules."""
+- Include a <style> block. Tables should be clean and scannable. @media print rules for printing.
+- Time allocations must be specific (e.g., "12 min", not "10–15 min")."""
 
 
 def _call_claude(system: str, prompt: str, max_tokens: int = 8192) -> str:

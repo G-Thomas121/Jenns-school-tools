@@ -1,7 +1,10 @@
 import type {
   Workflow, Output, OutputSummary, CurriculumDoc, ContextNote,
   Student, Suggestion, Conversation, Message, Job, GradebookSummary, Grade,
+  LessonTopic, TopicWorkflow,
 } from './types'
+
+export type { LessonTopic, TopicWorkflow }
 
 async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
@@ -64,6 +67,12 @@ export const deleteSuggestion = (id: number) => req<{ ok: boolean }>(`/api/sugge
 // ── Gradebook ──────────────────────────────────────────────────────────────────
 export const getGradebookSummary = (grade?: string) =>
   req<GradebookSummary[]>(`/api/gradebook/summary${grade ? `?grade=${grade}` : ''}`)
+
+// ── Lesson Topics ──────────────────────────────────────────────────────────────
+export const getTopics = () =>
+  req<{ topics: LessonTopic[]; orphaned: TopicWorkflow[] }>('/api/topics')
+export const deleteTopic = (id: number) =>
+  req<{ ok: boolean }>(`/api/topics/${id}`, { method: 'DELETE' })
 
 // ── Chat / MARTY ───────────────────────────────────────────────────────────────
 export const getConversations = () => req<Conversation[]>('/api/chat/conversations')

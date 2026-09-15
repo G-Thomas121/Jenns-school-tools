@@ -1,6 +1,25 @@
 export type Grade = 'english1' | 'english2' | 'both'
-export type WorkflowType = 'worksheet' | 'foldable' | 'slideshow' | 'study_guide' | 'lesson_plan' | 'custom'
+export type WorkflowType = 'worksheet' | 'foldable' | 'slideshow' | 'study_guide' | 'lesson_plan' | 'bell_ringer' | 'exit_ticket' | 'custom'
 export type OutputVariant = 'student' | 'teacher' | 'slideshow'
+
+export interface LessonTopic {
+  id: number
+  name: string
+  grade: Grade
+  created_at: string
+  updated_at: string
+  workflows: TopicWorkflow[]
+}
+
+export interface TopicWorkflow {
+  id: number
+  name: string
+  type: WorkflowType
+  grade: Grade
+  updated_at: string
+  latest_output_id: number | null
+  output_count: number
+}
 export type MessageRole = 'user' | 'assistant' | 'tool_call' | 'tool_result' | 'error' | 'system'
 
 export interface Workflow {
@@ -12,6 +31,7 @@ export interface Workflow {
   instructions: string | null
   doc_ids: string
   rubric: string | null
+  topic_id: number | null
   created_at: string
   updated_at: string
   output_count?: number

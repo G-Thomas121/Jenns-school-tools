@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from app.database import init_db
-from app.routers import workflows, documents, context, suggestions, generate, students, submissions, gradebook, chat
+from app.routers import workflows, documents, context, suggestions, generate, students, submissions, gradebook, chat, topics
 
 BASE_DIR = Path(__file__).parent.parent
 
@@ -38,6 +38,7 @@ app.include_router(students.router, prefix="/api/students", tags=["students"])
 app.include_router(submissions.router, prefix="/api/submissions", tags=["submissions"])
 app.include_router(gradebook.router, prefix="/api/gradebook", tags=["gradebook"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+app.include_router(topics.router, prefix="/api/topics", tags=["topics"])
 
 
 @app.get("/{full_path:path}", include_in_schema=False)
