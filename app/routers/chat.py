@@ -1,4 +1,5 @@
 import json
+import unicodedata
 from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File
 from fastapi.responses import Response, FileResponse, StreamingResponse
 from pydantic import BaseModel
@@ -7,6 +8,12 @@ from typing import Optional
 from app.database import get_db
 from app.services.marty import run_agent
 from app.services.pptx_export import build_pptx
+
+
+def _ascii_filename(name: str) -> str:
+    """Strip non-ASCII characters so the name is safe for Content-Disposition headers."""
+    normalized = unicodedata.normalize('NFKD', name)
+    return normalized.encode('ascii', 'ignore').decode('ascii')
 
 router = APIRouter()
 
@@ -169,7 +176,7 @@ def download_html(output_id: int, variant: str):
     if not html:
         raise HTTPException(404, f"No {variant} version for this output")
 
-    safe_name = row["name"].replace(" ", "_").replace("/", "-")[:50]
+    safe_name = _ascii_filename(row["name"]).replace(" ", "_").replace("/", "-")[:50]
     filename = f"{safe_name}_{variant}.html"
     return Response(
         content=html.encode(),
@@ -228,7 +235,7 @@ def export_pptx(output_id: int):
         raise HTTPException(400, "No slideshow content for this output. Generate a slideshow first.")
 
     pptx_bytes = build_pptx(slides_json, row["name"])
-    safe_name = row["name"].replace(" ", "_").replace("/", "-")[:50]
+    safe_name = _ascii_filename(row["name"]).replace(" ", "_").replace("/", "-")[:50]
 
     return Response(
         content=pptx_bytes,
