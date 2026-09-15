@@ -19,17 +19,15 @@ const CLASS_OPTIONS = [
 ]
 
 const EXTRA_CHIPS = [
-  { label: 'Bell ringer', value: 'bell_ringer', emoji: '🔔' },
   { label: 'Worksheet', value: 'worksheet', emoji: '📝' },
   { label: 'Foldable', value: 'foldable', emoji: '📂' },
-  { label: 'Exit ticket', value: 'exit_ticket', emoji: '🎟' },
+  { label: 'Study guide', value: 'study_guide', emoji: '📚' },
 ]
 
 const EXTRA_LABELS: Record<string, string> = {
-  bell_ringer: 'bell ringer',
   worksheet: 'worksheet',
   foldable: 'foldable',
-  exit_ticket: 'exit ticket',
+  study_guide: 'study guide',
 }
 
 export default function PromptChips({ onSubmit }: Props) {

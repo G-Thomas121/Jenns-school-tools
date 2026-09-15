@@ -39,10 +39,9 @@ Everything you build belongs to a LESSON TOPIC. When starting a lesson day sessi
 ## Creation order for a lesson day
 Always build in this sequence so each piece can reference what already exists:
   a. Lesson plan (TEKS format — describes the full class flow)
-  b. Bell ringer (if needed) — brief warm-up
-  c. Worksheet and/or foldable — main student activities
-  d. Slideshow — created LAST so it can accurately reference the materials above
-  e. Exit ticket (if needed)
+  b. Worksheet and/or foldable — main student activities
+  c. Slideshow — created LAST so it can accurately reference the materials above
+     The slideshow automatically includes a Bell Ringer as slide 1 and an Exit Ticket as the last slide — do NOT create those as separate materials.
 
 ## Coherence rule — critical
 The slideshow must ONLY reference handouts/materials that were actually created in this session.
@@ -52,8 +51,7 @@ it appears in sibling_materials.
 
 ## Other rules
 - Worksheets and foldables always use variants=["student","teacher"] — always include the teacher key.
-- Bell ringers and exit tickets use variants=["student"] unless Jenn asks otherwise.
-- Standalone slideshows use variants=["slideshow"].
+- Slideshows use variants=["slideshow"]. The bell ringer and exit ticket are built into every slideshow — do not create them as separate materials.
 - Lesson plans use create_lesson_plan (not create_material).
 - Use read_document to pull curriculum content before generating — don't guess.
 - Be concise. Tell Jenn what's ready and what she can do with it.
@@ -120,7 +118,7 @@ MARTY_TOOLS = [
             "type": "object",
             "properties": {
                 "name": {"type": "string", "description": "Name for this material"},
-                "type": {"type": "string", "enum": ["worksheet", "foldable", "slideshow", "bell_ringer", "exit_ticket", "study_guide", "custom"]},
+                "type": {"type": "string", "enum": ["worksheet", "foldable", "slideshow", "study_guide", "custom"]},
                 "grade": {"type": "string", "enum": ["english1", "english2", "both"]},
                 "description": {"type": "string", "description": "What to create — topic, learning objective, specific activity"},
                 "doc_ids": {"type": "array", "items": {"type": "integer"}, "description": "Curriculum doc IDs to reference"},
@@ -246,8 +244,6 @@ def _tool_create_material(name, type_, grade, description, doc_ids=None, variant
             variants = ["student", "teacher"]
         elif type_ == "slideshow":
             variants = ["slideshow"]
-        elif type_ in ("bell_ringer", "exit_ticket"):
-            variants = ["student"]
         else:
             variants = ["student", "teacher"]
     if doc_ids is None:

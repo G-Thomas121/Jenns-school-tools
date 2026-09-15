@@ -1,5 +1,5 @@
 export type Grade = 'english1' | 'english2' | 'both'
-export type WorkflowType = 'worksheet' | 'foldable' | 'slideshow' | 'study_guide' | 'lesson_plan' | 'bell_ringer' | 'exit_ticket' | 'custom'
+export type WorkflowType = 'worksheet' | 'foldable' | 'slideshow' | 'study_guide' | 'lesson_plan' | 'custom'
 export type OutputVariant = 'student' | 'teacher' | 'slideshow'
 
 export interface LessonTopic {

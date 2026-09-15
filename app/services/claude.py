@@ -34,8 +34,6 @@ OUTPUT_TYPE_HINTS = {
     "foldable": "Create a foldable study tool. Design it in panels (4 quadrants or tri-fold). Each panel should have a heading and space for student notes or responses.",
     "slideshow": "Create a multi-slide HTML presentation. Each slide is a <section> with page-break-after. Include a title slide, instruction slides, and a closing slide.",
     "study_guide": "Create a comprehensive study guide with organized sections, key vocabulary, important concepts, and review questions.",
-    "bell_ringer": "Create a short bell ringer warm-up activity (5 minutes max). 3–5 focused questions or a brief writing prompt. Clear instructions at the top.",
-    "exit_ticket": "Create a brief exit ticket (5 minutes max). 3–4 questions that check understanding of today's learning objective. Simple, clean layout with answer spaces.",
     "custom": "Create the classroom material described in the context below.",
 }
 
@@ -119,9 +117,16 @@ Rules:
 - Output ONLY valid HTML — no markdown fences, no explanation.
 - Each slide is a <section> with style="page-break-after: always; min-height: 5.5in; padding: 0.5in".
 - Include a <style> block with clean slide styling: large readable fonts, generous spacing, a consistent color scheme.
-- Slide sequence: (1) Title + objective, (2) Hook or warm-up, (3–N) Step-by-step instruction slides that mirror the student activity, (N+1) Discussion/debrief prompts, (last) Wrap-up or exit ticket.
 - Each slide should have a clear heading and concise bullet points or prompts — not walls of text.
 - This is for the teacher to project in class while walking students through the activity.
+
+Required slide sequence:
+1. BELL RINGER — A warm-up slide with 2–4 short questions or a brief prompt students answer as class begins. Label it clearly as "Bell Ringer".
+2. Title + objective slide
+3–N. Step-by-step instruction slides that mirror the student activity
+N+1. Discussion / debrief prompts
+LAST. EXIT TICKET — 2–3 questions checking today's learning objective. Label it clearly as "Exit Ticket".
+
 - IMPORTANT: Only reference student handouts or printed materials that are explicitly listed in the context provided. Do not invent or mention worksheets, foldables, or other materials that are not listed."""
 
 REVISE_SYSTEM = """You are editing an existing HTML classroom document.

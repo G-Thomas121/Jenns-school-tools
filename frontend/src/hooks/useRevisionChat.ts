@@ -36,8 +36,7 @@ export function useTopicChat() {
 
     const TYPE_LABELS: Record<string, string> = {
       lesson_plan: 'Lesson Plan', slideshow: 'Slideshow', worksheet: 'Worksheet',
-      foldable: 'Foldable', bell_ringer: 'Bell Ringer', exit_ticket: 'Exit Ticket',
-      study_guide: 'Study Guide', custom: 'Custom',
+      foldable: 'Foldable', study_guide: 'Study Guide', custom: 'Custom',
     }
 
     const materialsDesc = topic.workflows.length
@@ -46,7 +45,7 @@ export function useTopicChat() {
         ).join('\n')
       : '(none yet)'
 
-    const missingTypes = (['lesson_plan', 'slideshow', 'worksheet', 'foldable', 'bell_ringer', 'exit_ticket'] as const)
+    const missingTypes = (['lesson_plan', 'slideshow', 'worksheet', 'foldable'] as const)
       .filter(t => !topic.workflows.some(w => w.type === t))
 
     const hiddenPrompt = `[LESSON TOPIC CONTEXT — do not repeat this back verbatim]

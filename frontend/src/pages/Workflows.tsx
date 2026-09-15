@@ -15,14 +15,12 @@ interface ModalState { workflowId: number; outputId: number; variant: OutputVari
 
 const TYPE_LABEL: Record<string, string> = {
   lesson_plan: 'Lesson Plan', slideshow: 'Slideshow', worksheet: 'Worksheet',
-  foldable: 'Foldable', bell_ringer: 'Bell Ringer', exit_ticket: 'Exit Ticket',
-  study_guide: 'Study Guide', custom: 'Custom',
+  foldable: 'Foldable', study_guide: 'Study Guide', custom: 'Custom',
 }
 
 const TYPE_ICON: Record<string, string> = {
   lesson_plan: '📋', slideshow: '🖥', worksheet: '📝',
-  foldable: '📂', bell_ringer: '🔔', exit_ticket: '🎟',
-  study_guide: '📚', custom: '✏️',
+  foldable: '📂', study_guide: '📚', custom: '✏️',
 }
 
 function MaterialActions({ wf, onView }: {
