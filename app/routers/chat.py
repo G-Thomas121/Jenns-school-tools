@@ -178,6 +178,35 @@ def download_html(output_id: int, variant: str):
     )
 
 
+@router.get("/outputs/{output_id}/print/{variant}")
+def print_html(output_id: int, variant: str):
+    db = get_db()
+    row = db.execute(
+        "SELECT o.*, w.name FROM outputs o JOIN workflows w ON w.id=o.workflow_id WHERE o.id=?",
+        (output_id,)
+    ).fetchone()
+    db.close()
+    if not row:
+        raise HTTPException(404, "Output not found")
+
+    html_map = {"student": row["html"], "teacher": row["teacher_html"], "slideshow": row["slideshow_html"]}
+    html = html_map.get(variant)
+    if not html:
+        raise HTTPException(404, f"No {variant} version for this output")
+
+    print_script = (
+        "<style>@media screen{body{max-width:8.5in;margin:auto;padding:0.75in}}"
+        "@media print{@page{margin:0.75in}}</style>"
+        "<script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script>"
+    )
+    if "</body>" in html:
+        html = html.replace("</body>", print_script + "</body>")
+    else:
+        html = html + print_script
+
+    return Response(content=html.encode(), media_type="text/html")
+
+
 @router.get("/outputs/{output_id}/export/pptx")
 def export_pptx(output_id: int):
     db = get_db()

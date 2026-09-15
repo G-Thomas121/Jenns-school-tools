@@ -86,5 +86,7 @@ export const uploadDoc = async (file: File): Promise<{ message: string; filename
 
 export const downloadUrl = (outputId: number, variant: string) =>
   `/api/chat/outputs/${outputId}/download/${variant}`
+export const printUrl = (outputId: number, variant: string) =>
+  `/api/chat/outputs/${outputId}/print/${variant}`
 export const pptxUrl = (outputId: number) =>
   `/api/chat/outputs/${outputId}/export/pptx`

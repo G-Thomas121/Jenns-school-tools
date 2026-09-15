@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Send, Trash2, Paperclip, FileText, Key, Monitor, Download, Presentation } from 'lucide-react'
+import { Send, Trash2, Paperclip, FileText, Key, Monitor, Download, Presentation, Printer } from 'lucide-react'
 import {
   getConversations, createConversation, deleteConversation,
-  getMessages, sendMessage, uploadDoc, downloadUrl, pptxUrl,
+  getMessages, sendMessage, uploadDoc, downloadUrl, printUrl, pptxUrl,
 } from '../api'
 import OutputModal from '../components/OutputModal'
 import PromptChips, { type ChipSubmission } from '../components/PromptChips'
@@ -371,6 +371,14 @@ function OutputActionButtons({ outputId, onOpen }: {
           <v.icon size={11} /> {v.label}
         </button>
       ))}
+      <a
+        href={printUrl(outputId, 'student')}
+        target="_blank"
+        rel="noreferrer"
+        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-900/40 hover:bg-emerald-800/40 text-xs text-emerald-300 transition-colors border border-emerald-700/30"
+      >
+        <Printer size={11} /> PDF
+      </a>
       <a href={pptxUrl(outputId)} download className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-900/40 hover:bg-blue-800/40 text-xs text-blue-300 transition-colors">
         <Presentation size={11} /> PPTX
       </a>

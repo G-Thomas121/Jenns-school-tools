@@ -1,5 +1,6 @@
 import json
 import io
+import unicodedata
 from pptx import Presentation
 from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
@@ -10,6 +11,22 @@ THEME_BG = RGBColor(0x1E, 0x29, 0x3B)      # dark slate
 THEME_ACCENT = RGBColor(0x3B, 0x82, 0xF6)   # blue
 THEME_TEXT = RGBColor(0xF8, 0xFA, 0xFC)     # near-white
 THEME_MUTED = RGBColor(0x94, 0xA3, 0xB8)    # slate-400
+
+_UNICODE_MAP = str.maketrans({
+    '‘': "'", '’': "'", '‚': "'",
+    '“': '"', '”': '"', '„': '"',
+    '–': '-', '—': '--', '―': '--',
+    '…': '...', ' ': ' ', '•': '-',
+    '·': '*', '′': "'", '″': '"',
+})
+
+def _safe(text: str) -> str:
+    """Normalize Unicode to avoid latin-1 codec errors in python-pptx."""
+    if not text:
+        return text
+    text = text.translate(_UNICODE_MAP)
+    text = unicodedata.normalize('NFKC', text)
+    return text.encode('latin-1', errors='replace').decode('latin-1')
 
 
 def _set_bg(slide, color: RGBColor):
@@ -25,10 +42,11 @@ def _add_textbox(slide, text: str, left, top, width, height, font_size=24, bold=
     p = tf.paragraphs[0]
     p.alignment = align
     run = p.add_run()
-    run.text = text
+    run.text = _safe(text)
     run.font.size = Pt(font_size)
     run.font.bold = bold
     run.font.color.rgb = color
+    run.font.name = 'Calibri'
     return txBox
 
 
@@ -45,9 +63,10 @@ def _add_bullet_box(slide, bullets: list[str], left, top, width, height, font_si
             p = tf.add_paragraph()
         p.level = 0
         run = p.add_run()
-        run.text = f"• {bullet}"
+        run.text = f"• {_safe(bullet)}"
         run.font.size = Pt(font_size)
         run.font.color.rgb = THEME_TEXT
+        run.font.name = 'Calibri'
         p.space_after = Pt(6)
 
 
@@ -107,7 +126,7 @@ def build_pptx(slides_json: str, title: str = "Presentation") -> bytes:
 
         # Slide notes
         if notes_text:
-            slide.notes_slide.notes_text_frame.text = notes_text
+            slide.notes_slide.notes_text_frame.text = _safe(notes_text)
 
     buf = io.BytesIO()
     prs.save(buf)
