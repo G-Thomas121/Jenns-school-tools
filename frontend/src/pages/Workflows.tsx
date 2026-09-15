@@ -25,17 +25,19 @@ const TYPE_ICON: Record<string, string> = {
 
 function MaterialActions({ wf, onView }: {
   wf: TopicWorkflow
-  onView: (outId: number, v: OutputVariant, name: string) => void
+  onView: (wfId: number, outId: number, v: OutputVariant, name: string) => void
 }) {
   if (!wf.latest_output_id) return <span className="text-xs text-slate-600">No output yet</span>
 
   const id = wf.latest_output_id
   const name = wf.name
 
+  const wfId = wf.id
+
   if (wf.type === 'lesson_plan') {
     return (
       <div className="flex items-center gap-1">
-        <button onClick={() => onView(id, 'student', name)} className="btn btn-sm btn-ghost p-1.5 text-slate-400 hover:text-slate-100" title="View">
+        <button onClick={() => onView(wfId, id, 'student', name)} className="btn btn-sm btn-ghost p-1.5 text-slate-400 hover:text-slate-100" title="View">
           <FileText size={12} />
         </button>
         <a href={printUrl(id, 'student')} target="_blank" rel="noreferrer" className="btn btn-sm btn-ghost p-1.5 text-emerald-600 hover:text-emerald-400" title="Print/PDF">
@@ -51,7 +53,7 @@ function MaterialActions({ wf, onView }: {
   if (wf.type === 'slideshow') {
     return (
       <div className="flex items-center gap-1">
-        <button onClick={() => onView(id, 'slideshow', name)} className="btn btn-sm btn-ghost p-1.5 text-slate-400 hover:text-slate-100" title="View slides">
+        <button onClick={() => onView(wfId, id, 'slideshow', name)} className="btn btn-sm btn-ghost p-1.5 text-slate-400 hover:text-slate-100" title="View slides">
           <Monitor size={12} />
         </button>
         <a href={printUrl(id, 'slideshow')} target="_blank" rel="noreferrer" className="btn btn-sm btn-ghost p-1.5 text-emerald-600 hover:text-emerald-400" title="Print/PDF">
@@ -67,13 +69,13 @@ function MaterialActions({ wf, onView }: {
     )
   }
 
-  // worksheet, foldable, bell_ringer, exit_ticket, etc.
+  // worksheet, foldable, study_guide, custom
   return (
     <div className="flex items-center gap-1">
-      <button onClick={() => onView(id, 'student', name)} className="btn btn-sm btn-ghost p-1.5 text-slate-400 hover:text-slate-100" title="Student version">
+      <button onClick={() => onView(wfId, id, 'student', name)} className="btn btn-sm btn-ghost p-1.5 text-slate-400 hover:text-slate-100" title="Student version">
         <FileText size={12} />
       </button>
-      <button onClick={() => onView(id, 'teacher', name)} className="btn btn-sm btn-ghost p-1.5 text-slate-400 hover:text-yellow-400" title="Teacher key">
+      <button onClick={() => onView(wfId, id, 'teacher', name)} className="btn btn-sm btn-ghost p-1.5 text-slate-400 hover:text-yellow-400" title="Teacher key">
         <Key size={12} />
       </button>
       <a href={printUrl(id, 'student')} target="_blank" rel="noreferrer" className="btn btn-sm btn-ghost p-1.5 text-emerald-600 hover:text-emerald-400" title="Print/PDF">
@@ -88,7 +90,7 @@ function MaterialActions({ wf, onView }: {
 
 function TopicCard({ topic, onView }: {
   topic: LessonTopic
-  onView: (outId: number, v: OutputVariant, title: string) => void
+  onView: (wfId: number, outId: number, v: OutputVariant, title: string) => void
 }) {
   const [expanded, setExpanded] = useState(true)
   const qc = useQueryClient()
@@ -142,7 +144,7 @@ function TopicCard({ topic, onView }: {
                 <p className="text-xs font-medium text-slate-300 truncate">{wf.name}</p>
                 <p className="text-xs text-slate-600">{TYPE_LABEL[wf.type] ?? wf.type}</p>
               </div>
-              <MaterialActions wf={wf} onView={(outId, v, name) => onView(outId, v, name)} />
+              <MaterialActions wf={wf} onView={onView} />
             </div>
           ))}
         </div>
@@ -151,7 +153,7 @@ function TopicCard({ topic, onView }: {
   )
 }
 
-function OrphanedRow({ wf, onView }: { wf: TopicWorkflow; onView: (outId: number, v: OutputVariant, name: string) => void }) {
+function OrphanedRow({ wf, onView }: { wf: TopicWorkflow; onView: (wfId: number, outId: number, v: OutputVariant, name: string) => void }) {
   return (
     <div className="flex items-center gap-3 px-5 py-2.5 border-b border-slate-800 last:border-0 hover:bg-slate-800/20 transition-colors">
       <span className="text-base flex-shrink-0">{TYPE_ICON[wf.type] ?? '📄'}</span>
@@ -181,8 +183,8 @@ export default function Workflows() {
     w.name.toLowerCase().includes(search.toLowerCase())
   )
 
-  const openModal = (outId: number, v: OutputVariant, title: string) =>
-    setModal({ workflowId: 0, outputId: outId, variant: v, title })
+  const openModal = (wfId: number, outId: number, v: OutputVariant, title: string) =>
+    setModal({ workflowId: wfId, outputId: outId, variant: v, title })
 
   if (isLoading) return <div className="p-8 text-slate-500">Loading…</div>
 
