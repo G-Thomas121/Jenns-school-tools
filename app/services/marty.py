@@ -583,9 +583,32 @@ def _build_api_messages(conversation_id: int) -> list:
     return messages
 
 
+# ── Stop control ────────────────────────────────────────────────────────────────
+# Cooperative cancellation: the agent loop only checks this between safe boundaries
+# (before the next model call, and before each individual tool execution), it can't
+# interrupt a model call or tool execution already in flight.
+
+_stop_flags: set[int] = set()
+
+
+def request_stop(conversation_id: int) -> None:
+    _stop_flags.add(conversation_id)
+
+
+def _consume_stop(conversation_id: int) -> bool:
+    if conversation_id in _stop_flags:
+        _stop_flags.discard(conversation_id)
+        return True
+    return False
+
+
 # ── Agent loop ──────────────────────────────────────────────────────────────────
 
 def run_agent(conversation_id: int, user_message: str):
+    # Note: don't clear _stop_flags here — a stop requested just before this run
+    # starts (e.g. the user double-clicks) must still be honored. Stale flags left
+    # over from a run that ended normally (end_turn) are cleared where that happens.
+
     # Save user message
     _save_message(
         conversation_id,
@@ -609,6 +632,16 @@ def run_agent(conversation_id: int, user_message: str):
 
     max_iterations = 10
     for _ in range(max_iterations):
+        if _consume_stop(conversation_id):
+            _save_message(
+                conversation_id,
+                api_role="assistant",
+                api_content=[{"type": "text", "text": "Stopped."}],
+                display_role="assistant",
+                display_content="⏹️ Stopped — pick back up whenever you're ready.",
+            )
+            return
+
         messages = _with_cache_breakpoint(_build_api_messages(conversation_id))
 
         response = client.messages.create(
@@ -661,8 +694,12 @@ def run_agent(conversation_id: int, user_message: str):
 
         if response.stop_reason == "tool_use":
             tool_results_api = []
+            stopping = False
 
             for block in tool_use_blocks:
+                if not stopping and _consume_stop(conversation_id):
+                    stopping = True
+
                 # Save tool call for display
                 input_summary = ", ".join(f"{k}={json.dumps(v)[:40]}" for k, v in block.input.items())
                 _save_message(
@@ -670,12 +707,15 @@ def run_agent(conversation_id: int, user_message: str):
                     api_role="assistant",
                     api_content=[],
                     display_role="tool_call",
-                    display_content=f"{block.name}({input_summary})",
+                    display_content=f"{block.name}({input_summary})" if not stopping else f"{block.name}() — skipped",
                     tool_name=block.name,
                     tool_use_id=block.id,
                 )
 
-                result_str = _execute_tool(block.name, block.input)
+                if stopping:
+                    result_str = json.dumps({"cancelled": True, "message": "Cancelled — Jenn stopped MARTY before this ran."})
+                else:
+                    result_str = _execute_tool(block.name, block.input)
 
                 # Save tool result for display
                 try:
@@ -695,3 +735,17 @@ def run_agent(conversation_id: int, user_message: str):
                 )
 
                 tool_results_api.append({"type": "tool_result", "tool_use_id": block.id, "content": result_str})
+
+            if stopping:
+                _save_message(
+                    conversation_id,
+                    api_role="assistant",
+                    api_content=[{"type": "text", "text": "Stopped."}],
+                    display_role="assistant",
+                    display_content="⏹️ Stopped — pick back up whenever you're ready.",
+                )
+                return
+
+    # Run ended normally (end_turn or max_iterations) — drop any stop flag that
+    # arrived too late to be honored, so it doesn't cancel the next run.
+    _stop_flags.discard(conversation_id)

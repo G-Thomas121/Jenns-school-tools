@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Send, Trash2, Paperclip, FileText, Key, Monitor, Download, Presentation, Printer } from 'lucide-react'
+import { Send, Trash2, Paperclip, FileText, Key, Monitor, Download, Presentation, Printer, Square } from 'lucide-react'
 import {
   getConversations, createConversation, deleteConversation,
-  getMessages, sendMessage, uploadDoc, downloadUrl, printUrl, pptxUrl,
+  getMessages, sendMessage, stopConversation, uploadDoc, downloadUrl, printUrl, pptxUrl,
 } from '../api'
 import OutputModal from '../components/OutputModal'
 import PromptChips, { type ChipSubmission } from '../components/PromptChips'
@@ -65,6 +65,10 @@ export default function Chat() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [allMessages, isProcessing])
+
+  const stop = useMutation({
+    mutationFn: () => stopConversation(convId!),
+  })
 
   const deleteConv = useMutation({
     mutationFn: (id: number) => deleteConversation(id),
@@ -252,13 +256,24 @@ export default function Chat() {
               placeholder="Ask MARTY to create a worksheet, lesson plan, revise something…"
               className="flex-1 input resize-none"
             />
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || isProcessing}
-              className="btn h-[72px] px-5"
-            >
-              <Send size={16} />
-            </button>
+            {isProcessing ? (
+              <button
+                onClick={() => stop.mutate()}
+                disabled={!convId || stop.isPending}
+                className="btn btn-danger h-[72px] px-5"
+                title="Stop MARTY"
+              >
+                <Square size={16} />
+              </button>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={!input.trim()}
+                className="btn h-[72px] px-5"
+              >
+                <Send size={16} />
+              </button>
+            )}
           </div>
           <p className="text-xs text-slate-600 mt-2">Enter to send · Shift+Enter for new line</p>
         </div>

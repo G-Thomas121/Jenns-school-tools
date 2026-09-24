@@ -84,6 +84,8 @@ export const getMessages = (convId: number, since = 0) =>
   req<Message[]>(`/api/chat/conversations/${convId}/messages?since=${since}`)
 export const sendMessage = (convId: number, content: string, hidden = false) =>
   req<{ ok: boolean }>(`/api/chat/conversations/${convId}/messages`, { method: 'POST', ...body({ content, hidden }) })
+export const stopConversation = (convId: number) =>
+  req<{ ok: boolean }>(`/api/chat/conversations/${convId}/stop`, { method: 'POST' })
 
 export const uploadDoc = async (file: File): Promise<{ message: string; filename: string; doc_id?: number }> => {
   const form = new FormData()

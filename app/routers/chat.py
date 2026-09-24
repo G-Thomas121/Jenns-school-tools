@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from pathlib import Path
 from typing import Optional
 from app.database import get_db
-from app.services.marty import run_agent
+from app.services.marty import run_agent, request_stop
 from app.services.pptx_export import build_pptx
 
 
@@ -127,6 +127,12 @@ def send_message(conv_id: int, body: SendMessage, background_tasks: BackgroundTa
         raise HTTPException(404, "Conversation not found")
     background_tasks.add_task(_run_agent_task, conv_id, body.content, body.hidden)
     return {"ok": True, "status": "processing"}
+
+
+@router.post("/conversations/{conv_id}/stop")
+def stop_conversation(conv_id: int):
+    request_stop(conv_id)
+    return {"ok": True}
 
 
 # ── File upload ─────────────────────────────────────────────────────────────────
