@@ -645,7 +645,7 @@ def run_agent(conversation_id: int, user_message: str):
         messages = _with_cache_breakpoint(_build_api_messages(conversation_id))
 
         response = client.messages.create(
-            model="claude-opus-5-5",
+            model="claude-sonnet-5",
             max_tokens=8192,
             system=[{"type": "text", "text": MARTY_SYSTEM, "cache_control": {"type": "ephemeral"}}],
             tools=MARTY_TOOLS,

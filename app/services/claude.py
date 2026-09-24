@@ -1,6 +1,7 @@
 import os
 import json
 import base64
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import anthropic
 
@@ -283,47 +284,44 @@ def generate(
         db.execute("UPDATE workflows SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (workflow_id,))
         db.commit()
         db.close()
-        _update_job(job_id, "running", "Generating teacher answer key…", output_id)
+        _update_job(job_id, "running", "Generating teacher key and slideshow…", output_id)
 
-        # --- Teacher answer key ---
-        if "teacher" in variants:
+        # --- Teacher answer key + slideshow (independent of each other, run concurrently) ---
+        def _gen_teacher() -> str | None:
+            if "teacher" not in variants:
+                return base_output.get("teacher_html") if base_output else None
             if iterating and base_output.get("teacher_html"):
-                teacher_html = _revise_html(base_output["teacher_html"], revision_instructions, "teacher answer key")
-            else:
-                teacher_prompt = (
-                    f"Here is the student version of this document:\n\n{student_html}\n\n"
-                    f"Original context: {workflow.get('context') or ''}\n\n"
-                    "Now create the complete TEACHER ANSWER KEY version."
-                )
-                teacher_html = _call_claude(TEACHER_KEY_SYSTEM, teacher_prompt)
-        else:
-            teacher_html = base_output.get("teacher_html") if base_output else None
+                return _revise_html(base_output["teacher_html"], revision_instructions, "teacher answer key")
+            teacher_prompt = (
+                f"Here is the student version of this document:\n\n{student_html}\n\n"
+                f"Original context: {workflow.get('context') or ''}\n\n"
+                "Now create the complete TEACHER ANSWER KEY version."
+            )
+            return _call_claude(TEACHER_KEY_SYSTEM, teacher_prompt)
 
-        db = get_db()
-        db.execute("UPDATE outputs SET teacher_html=? WHERE id=?", (teacher_html, output_id))
-        db.commit()
-        db.close()
-        _update_job(job_id, "running", "Generating slideshow…", output_id)
-
-        # --- Slideshow ---
-        if "slideshow" in variants:
+        def _gen_slideshow() -> str | None:
+            if "slideshow" not in variants:
+                return base_output.get("slideshow_html") if base_output else None
             if iterating and base_output.get("slideshow_html"):
-                slideshow_html = _revise_html(base_output["slideshow_html"], revision_instructions, "slideshow")
-            else:
-                slideshow_prompt = (
-                    f"Here is the student activity document this slideshow should accompany:\n\n{student_html}\n\n"
-                    f"Assignment name: {workflow['name']}\n"
-                    f"Class: {GRADE_HINTS.get(workflow.get('grade', 'both'), '')}\n\n"
-                    "Create a slideshow presentation that walks the class through this activity."
-                )
-                slideshow_html = _call_claude(SLIDESHOW_SYSTEM, slideshow_prompt)
-        else:
-            slideshow_html = base_output.get("slideshow_html") if base_output else None
+                return _revise_html(base_output["slideshow_html"], revision_instructions, "slideshow")
+            slideshow_prompt = (
+                f"Here is the student activity document this slideshow should accompany:\n\n{student_html}\n\n"
+                f"Assignment name: {workflow['name']}\n"
+                f"Class: {GRADE_HINTS.get(workflow.get('grade', 'both'), '')}\n\n"
+                "Create a slideshow presentation that walks the class through this activity."
+            )
+            return _call_claude(SLIDESHOW_SYSTEM, slideshow_prompt)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            teacher_future = executor.submit(_gen_teacher)
+            slideshow_future = executor.submit(_gen_slideshow)
+            teacher_html = teacher_future.result()
+            slideshow_html = slideshow_future.result()
 
         db = get_db()
         db.execute(
-            "UPDATE outputs SET slideshow_html=?, status='complete' WHERE id=?",
-            (slideshow_html, output_id)
+            "UPDATE outputs SET teacher_html=?, slideshow_html=?, status='complete' WHERE id=?",
+            (teacher_html, slideshow_html, output_id)
         )
         db.commit()
         db.close()
