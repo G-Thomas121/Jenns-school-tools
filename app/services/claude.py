@@ -174,9 +174,9 @@ Rules:
 
 def _call_claude(system: str, prompt: str, max_tokens: int = 8192) -> str:
     msg = client.messages.create(
-        model="claude-opus-4-7",
+        model="claude-opus-5-5",
         max_tokens=max_tokens,
-        system=system,
+        system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": prompt}],
     )
     return msg.content[0].text.strip()
@@ -334,7 +334,7 @@ def detect_student_name(filepath: str) -> dict:
 
     content_block = _file_content_block(filepath)
     msg = client.messages.create(
-        model="claude-opus-4-7",
+        model="claude-opus-5-5",
         max_tokens=256,
         messages=[{
             "role": "user",
@@ -392,7 +392,7 @@ def grade_submission(submission_id: int) -> dict:
     grade_label = GRADE_HINTS.get(sub.get("grade", "both"), "9th/10th grade English")
 
     msg = client.messages.create(
-        model="claude-opus-4-7",
+        model="claude-opus-5-5",
         max_tokens=2048,
         messages=[{
             "role": "user",

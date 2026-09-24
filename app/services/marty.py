@@ -182,6 +182,7 @@ MARTY_TOOLS = [
             "properties": {"limit": {"type": "integer", "description": "Number to return, default 10"}},
             "required": [],
         },
+        "cache_control": {"type": "ephemeral"},
     },
 ]
 
@@ -539,6 +540,25 @@ def _save_message(conversation_id: int, api_role: str, api_content, display_role
     db.close()
 
 
+def _with_cache_breakpoint(messages: list) -> list:
+    """Mark the last content block of the last message as an ephemeral cache breakpoint.
+    Each call re-marks the new tail, so the growing tool-use history and prior turns
+    are served from cache instead of re-processed every iteration."""
+    if not messages:
+        return messages
+    messages = list(messages)
+    last = dict(messages[-1])
+    content = last["content"]
+    if isinstance(content, str):
+        content = [{"type": "text", "text": content}]
+    else:
+        content = [dict(block) for block in content]
+    content[-1] = {**content[-1], "cache_control": {"type": "ephemeral"}}
+    last["content"] = content
+    messages[-1] = last
+    return messages
+
+
 def _build_api_messages(conversation_id: int) -> list:
     db = get_db()
     rows = db.execute(
@@ -589,12 +609,12 @@ def run_agent(conversation_id: int, user_message: str):
 
     max_iterations = 10
     for _ in range(max_iterations):
-        messages = _build_api_messages(conversation_id)
+        messages = _with_cache_breakpoint(_build_api_messages(conversation_id))
 
         response = client.messages.create(
-            model="claude-opus-4-7",
+            model="claude-opus-5-5",
             max_tokens=8192,
-            system=MARTY_SYSTEM,
+            system=[{"type": "text", "text": MARTY_SYSTEM, "cache_control": {"type": "ephemeral"}}],
             tools=MARTY_TOOLS,
             messages=messages,
         )
