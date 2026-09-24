@@ -181,9 +181,9 @@ def _extract_text(msg) -> str:
     raise ValueError(f"No text block in response (stop_reason={msg.stop_reason})")
 
 
-def _call_claude(system: str, prompt: str, max_tokens: int = 8192) -> str:
+def _call_claude(system: str, prompt: str, max_tokens: int = 8192, model: str = "claude-opus-5-5") -> str:
     msg = client.messages.create(
-        model="claude-opus-5-5",
+        model=model,
         max_tokens=max_tokens,
         system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": prompt}],
@@ -192,12 +192,14 @@ def _call_claude(system: str, prompt: str, max_tokens: int = 8192) -> str:
 
 
 def _revise_html(existing_html: str, instructions: str, variant_label: str) -> str:
+    # Revisions are a constrained edit task (preserve structure, apply one change),
+    # not creative generation — Sonnet 5 is fast and plenty capable here.
     prompt = (
         f"Here is the current {variant_label} HTML document:\n\n"
         f"{existing_html}\n\n"
         f"Changes to make:\n{instructions}"
     )
-    return _call_claude(REVISE_SYSTEM, prompt)
+    return _call_claude(REVISE_SYSTEM, prompt, model="claude-sonnet-5")
 
 
 def _update_job(job_id: str | None, status: str, progress: str, output_id: int | None = None):
