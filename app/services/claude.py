@@ -172,6 +172,15 @@ Rules:
 - Time allocations must be specific (e.g., "12 min", not "10–15 min")."""
 
 
+def _extract_text(msg) -> str:
+    """claude-opus-5-5 may prepend a thinking block before the text block,
+    so the answer isn't reliably content[0]."""
+    for block in msg.content:
+        if block.type == "text":
+            return block.text.strip()
+    raise ValueError(f"No text block in response (stop_reason={msg.stop_reason})")
+
+
 def _call_claude(system: str, prompt: str, max_tokens: int = 8192) -> str:
     msg = client.messages.create(
         model="claude-opus-5-5",
@@ -179,7 +188,7 @@ def _call_claude(system: str, prompt: str, max_tokens: int = 8192) -> str:
         system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": prompt}],
     )
-    return msg.content[0].text.strip()
+    return _extract_text(msg)
 
 
 def _revise_html(existing_html: str, instructions: str, variant_label: str) -> str:
@@ -352,8 +361,8 @@ def detect_student_name(filepath: str) -> dict:
             ],
         }],
     )
-    raw = msg.content[0].text.strip()
     try:
+        raw = _extract_text(msg)
         # Strip markdown fences if Claude adds them
         if raw.startswith("```"):
             raw = raw.split("```")[1]
@@ -414,8 +423,9 @@ def grade_submission(submission_id: int) -> dict:
         }],
     )
 
-    raw = msg.content[0].text.strip()
+    raw = ""
     try:
+        raw = _extract_text(msg)
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
