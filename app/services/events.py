@@ -5,6 +5,7 @@ each open SSE connection subscribes with its own queue.
 Events (all dicts with a "type"):
     message  a chat row was saved: {"message": {id, display_role, display_content, path, created_at}}
     delta    streamed assistant text: {"text": "..."}
+    thinking MARTY's current progress note, so far: {"text": "..."} (replaces the previous one)
     draft    a file is being written: {"path": "...", "content": "partial markdown" | None for edits}
     reset    the in-progress response was discarded (retrying) — drop streamed text/drafts
     done     the run finished

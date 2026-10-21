@@ -25,6 +25,7 @@ export interface Draft {
 export type StreamEvent =
   | { type: 'message'; message: Message }
   | { type: 'delta'; text: string }
+  | { type: 'thinking'; text: string }
   | { type: 'draft'; path: string; content: string | null }
   | { type: 'status'; running: boolean }
   | { type: 'reset' }

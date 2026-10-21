@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { Brain, FileText, Pencil, Search, Send, Square } from 'lucide-react'
+import { Brain, FileText, MessageCircle, Pencil, Search, Send, Square } from 'lucide-react'
 import { createConversation, sendMessage, stopConversation, streamUrl } from '../api'
 import DocPane from '../components/DocPane'
 import { ChatMarkdown } from '../components/Markdown'
@@ -22,6 +22,7 @@ export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([])
   const [running, setRunning] = useState(false)
   const [liveText, setLiveText] = useState('')   // assistant text streaming in right now
+  const [note, setNote] = useState('')           // MARTY's latest progress note ("Checking the plan…")
   const [draft, setDraft] = useState<Draft | null>(null)  // document streaming in right now
   const [streamNonce, setStreamNonce] = useState(0)  // bump to (re)open the event stream
   const [input, setInput] = useState('')
@@ -53,6 +54,7 @@ export default function Chat() {
     lastId.current = 0
     setRunning(false)
     setLiveText('')
+    setNote('')
     setDraft(null)
   }, [convId])
 
@@ -66,13 +68,15 @@ export default function Chat() {
       switch (ev.type) {
         case 'message': addMessage(ev.message); break
         case 'delta': setLiveText(t => t + ev.text); break
+        case 'thinking': setNote(ev.text); break
         case 'draft': setDraft({ path: ev.path, content: ev.content }); setOpenPath(ev.path); break
-        case 'reset': setLiveText(''); setDraft(null); break
+        case 'reset': setLiveText(''); setNote(''); setDraft(null); break
         case 'status': setRunning(ev.running); break
         case 'done':
           es.close()
           setRunning(false)
           setLiveText('')
+          setNote('')
           setDraft(null)
           qc.invalidateQueries({ queryKey: ['conversations'] })
           break
@@ -96,6 +100,7 @@ export default function Chat() {
       }
       await sendMessage(id, content)
       setRunning(true)
+      setNote('')
       setStreamNonce(n => n + 1)
     } catch (e) {
       setInput(content)
@@ -114,9 +119,9 @@ export default function Chat() {
             <EmptyState onPick={s => { setInput(s); inputRef.current?.focus() }} />
           ) : (
             <div className="px-6 py-6 space-y-3 max-w-3xl mx-auto">
-              {messages.map(m => <MessageRow key={m.id} msg={m} onOpen={setOpenPath} />)}
+              {messages.map((m, i) => <MessageRow key={m.id} msg={m} next={messages[i + 1]} onOpen={setOpenPath} />)}
               {liveText && <AssistantBubble text={liveText} />}
-              {running && !liveText && <Working />}
+              {running && (!liveText || note) && <Working note={note} />}
               <div ref={endRef} />
             </div>
           )}
@@ -168,7 +173,23 @@ function EmptyState({ onPick }: { onPick: (s: string) => void }) {
   )
 }
 
-function MessageRow({ msg, onOpen }: { msg: Message; onOpen: (path: string) => void }) {
+/** A one-sentence aside right before a file action ("Reading the lesson plan so…") — narration,
+ *  not a reply, so it renders like the tool rows instead of as a chat bubble. */
+function isStepNote(msg: Message, next?: Message) {
+  return msg.display_role === 'assistant' && next?.display_role === 'tool'
+    && msg.display_content.length <= 200 && !msg.display_content.includes('\n')
+}
+
+function MessageRow({ msg, next, onOpen }: { msg: Message; next?: Message; onOpen: (path: string) => void }) {
+  if (isStepNote(msg, next)) {
+    return (
+      <div className="ml-10 flex items-start gap-2 text-xs text-slate-400 italic">
+        <MessageCircle size={12} className="flex-shrink-0 mt-0.5 not-italic" />
+        <span>{msg.display_content}</span>
+      </div>
+    )
+  }
+
   if (msg.display_role === 'user') {
     return (
       <div className="flex justify-end slide-up">
@@ -218,7 +239,7 @@ function Avatar() {
   return <div className="w-7 h-7 rounded-full bg-blue-700 flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5">M</div>
 }
 
-function Working() {
+function Working({ note }: { note: string }) {
   const [elapsed, setElapsed] = useState(0)
   useEffect(() => {
     const t = setInterval(() => setElapsed(s => s + 1), 1000)
@@ -232,6 +253,7 @@ function Working() {
         <span className="w-2 h-2 rounded-full bg-blue-500 pulse-2" />
         <span className="w-2 h-2 rounded-full bg-blue-500 pulse-3" />
       </div>
+      {note && <span key={note.slice(0, 20)} className="text-xs text-slate-400 italic fade-in min-w-0">{note}</span>}
       {elapsed >= 5 && (
         <span className="text-xs text-slate-500 font-mono tabular-nums">
           {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}

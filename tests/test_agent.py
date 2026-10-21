@@ -31,7 +31,11 @@ class FakeStream:
     def __iter__(self):
         for i, block in enumerate(self.message.content):
             yield SimpleNamespace(type="content_block_start", index=i, content_block=block)
-            if block.type == "text":
+            if block.type == "thinking" and block.thinking:
+                mid = len(block.thinking) // 2
+                for end in (mid, len(block.thinking)):
+                    yield SimpleNamespace(type="thinking", thinking="", snapshot=block.thinking[:end])
+            elif block.type == "text":
                 mid = len(block.text) // 2
                 for chunk in (block.text[:mid], block.text[mid:]):
                     yield SimpleNamespace(type="text", text=chunk)
@@ -100,8 +104,8 @@ def tool(name, id="t1", **input):
     return {"type": "tool_use", "id": id, "name": name, "input": input}
 
 
-def thinking(sig="sig-1"):
-    return {"type": "thinking", "thinking": "", "signature": sig}
+def thinking(sig="sig-1", text=""):
+    return {"type": "thinking", "thinking": text, "signature": sig}
 
 
 @pytest.fixture
@@ -155,6 +159,9 @@ def test_request_uses_cached_system_prompt_and_tools(conv_id, workspace):
     }
     # Tool inputs (whole documents) stream as they're written instead of arriving in one burst.
     assert all(t["eager_input_streaming"] for t in call["tools"])
+    # Progress notes between tool calls come back as text; reasoning stays hidden.
+    assert call["thinking"] == {"type": "adaptive", "display": "updates"}
+    assert "thinking-display-updates-2026-08-18" in call["betas"]
 
 
 def test_user_turn_carries_memory_and_file_list(conv_id, workspace):
@@ -348,6 +355,28 @@ def test_document_streams_into_draft_events_while_being_written(conv_id, workspa
     contents = [d["content"] for d in drafts if d["content"]]
     assert doc.startswith(contents[0]) and len(contents[0]) < len(doc)
     assert contents[-1] == doc
+
+
+def test_progress_notes_stream_as_thinking_events_but_are_not_saved_to_chat(conv_id, workspace, events):
+    note = "Checking the lesson plan so the worksheet matches the objective."
+    fake = FakeClient(
+        reply(thinking(text=note), tool("list_files")),
+        reply(text("Done")),
+    )
+    agent.run_agent(conv_id, "worksheet", client=fake, workspace=workspace)
+
+    notes = [e["text"] for e in events() if e["type"] == "thinking"]
+    assert notes[-1] == note
+    assert all(note.startswith(n) for n in notes)  # snapshots grow; the UI shows the latest
+    assert note not in [r["display_content"] for r in displayed(conv_id)]
+    # ...but MARTY still gets its own note back, unchanged, on the next call.
+    assert fake.calls[1]["messages"][1]["content"][0] == {"type": "thinking", "thinking": note, "signature": "sig-1"}
+
+
+def test_interrupted_work_placeholder_is_not_shown(conv_id, workspace, events):
+    fake = FakeClient(reply(thinking(text=agent.INTERRUPTED_NOTE), stop_reason="max_tokens"))
+    agent.run_agent(conv_id, "big", client=fake, workspace=workspace)
+    assert not [e for e in events() if e["type"] == "thinking"]
 
 
 def test_edits_announce_the_file_without_content(conv_id, workspace, events):

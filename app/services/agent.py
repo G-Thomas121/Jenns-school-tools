@@ -29,6 +29,14 @@ MAX_LISTED_FILES = 300
 MAX_STREAM_ATTEMPTS = 3
 DRAFT_INTERVAL = 0.15  # seconds between live document snapshots sent to the UI
 
+# With display "updates", the short notes MARTY writes between tool calls ("Checking the lesson
+# plan first…") come back as thinking-block text while its reasoning stays hidden. Without it
+# they come back empty and long turns look silent.
+THINKING = {"type": "adaptive", "display": "updates"}
+BETAS = ["server-side-fallback-2026-07-01", "thinking-display-updates-2026-08-18"]
+# Stands in for unfinished work when a response is cut off — not a real update.
+INTERRUPTED_NOTE = "This part of the response was interrupted before it finished."
+
 SYSTEM_PROMPT = """You are MARTY, a teaching assistant for Jenn, who teaches 9th grade English 1 and \
 10th grade English 2 at a Texas public high school. You work in her workspace: a folder of markdown \
 files, much like a coding assistant works in a code repository.
@@ -72,7 +80,9 @@ to how you work. Don't save one-off details about the current lesson. You can al
 `MARTY.md` with `edit_file` if it gets messy.
 
 ## Style
-Be warm and concise. Refer to yourself as MARTY."""
+Be warm and concise. Refer to yourself as MARTY. Jenn watches you work, so before each step that \
+takes a while (reading her files, drafting or revising a document), say in one short sentence what \
+you're about to do and why, for example: Reading the lesson plan so the exit ticket matches the objective."""
 
 
 def _tool(name: str, description: str, properties: dict, required: list[str]) -> dict:
@@ -338,8 +348,9 @@ def _stream_response(conversation_id: int, client):
                 tools=TOOLS,
                 messages=_load_history(conversation_id),
                 cache_control={"type": "ephemeral"},
+                thinking=THINKING,
                 output_config={"effort": "medium"},
-                betas=["server-side-fallback-2026-07-01"],
+                betas=BETAS,
                 fallbacks="default",
             ) as stream:
                 tool_name, raw, announced, last_draft = None, "", False, 0.0
@@ -350,6 +361,10 @@ def _stream_response(conversation_id: int, client):
                         raw, announced = "", False
                     elif event.type == "text":
                         broker.publish(conversation_id, {"type": "delta", "text": event.text})
+                    elif event.type == "thinking":
+                        note = event.snapshot.strip()
+                        if note and not INTERRUPTED_NOTE.startswith(note):
+                            broker.publish(conversation_id, {"type": "thinking", "text": note})
                     elif event.type == "input_json" and tool_name in ("write_file", "edit_file"):
                         raw += event.partial_json
                         if tool_name == "edit_file" and announced:
