@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Brain, Check, Copy, FileText, Folder, Pencil, Printer, X } from 'lucide-react'
 import { getFile, getFiles, saveFile } from '../api'
+import type { Draft } from '../types'
 import { DocumentMarkdown } from './Markdown'
 
 const MEMORY_FILE = 'MARTY.md'
@@ -10,12 +11,15 @@ interface Props {
   path: string | null
   onOpen: (path: string | null) => void
   running: boolean
+  draft: Draft | null
 }
 
-export default function DocPane({ path, onOpen, running }: Props) {
+export default function DocPane({ path, onOpen, running, draft }: Props) {
   return (
     <aside className="w-[52%] min-w-[420px] flex-shrink-0 border-l border-slate-800 bg-slate-900 flex flex-col">
-      {path ? <FileView path={path} onBack={() => onOpen(null)} running={running} /> : <FileBrowser onOpen={onOpen} />}
+      {path
+        ? <FileView path={path} onBack={() => onOpen(null)} running={running} live={draft?.path === path ? draft : null} />
+        : <FileBrowser onOpen={onOpen} />}
     </aside>
   )
 }
@@ -104,16 +108,25 @@ function prettyName(slug: string) {
 
 // ── Viewer / editor ────────────────────────────────────────────────────────────
 
-function FileView({ path, onBack, running }: { path: string; onBack: () => void; running: boolean }) {
+function FileView({ path, onBack, running, live }: { path: string; onBack: () => void; running: boolean; live: Draft | null }) {
   const qc = useQueryClient()
-  const { data, error } = useQuery({ queryKey: ['file', path], queryFn: () => getFile(path) })
-  const [draft, setDraft] = useState<string | null>(null)
+  // A brand-new file 404s until MARTY finishes writing it; the live draft covers that gap.
+  const { data, error } = useQuery({ queryKey: ['file', path], queryFn: () => getFile(path), retry: false })
+  const [draft, setDraft] = useState<string | null>(null)  // Jenn's own unsaved edit
   const [copied, setCopied] = useState(false)
   const docRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const isMarkdown = path.endsWith('.md')
   const editable = isMarkdown && !path.startsWith('curriculum/')
+  const content = live?.content ?? data?.content
+  const writing = live?.content != null
 
   useEffect(() => setDraft(null), [path])
+
+  // Follow the end of the document while MARTY writes it.
+  useEffect(() => {
+    if (writing && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+  }, [writing, live?.content])
 
   const save = useMutation({
     mutationFn: (content: string) => saveFile(path, content),
@@ -147,7 +160,13 @@ function FileView({ path, onBack, running }: { path: string; onBack: () => void;
         <span className="text-sm text-slate-300 truncate flex-1" title={path}>
           {path === MEMORY_FILE ? "MARTY's memory" : path}
         </span>
-        {draft === null ? (
+        {live && (
+          <span className="flex items-center gap-1.5 text-xs text-blue-300 flex-shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 pulse-1" />
+            MARTY is {writing ? 'writing' : 'editing'}…
+          </span>
+        )}
+        {live ? null : draft === null ? (
           <>
             {editable && (
               <button onClick={() => setDraft(data?.content ?? '')} disabled={running || !data} className="btn btn-ghost btn-sm"
@@ -170,8 +189,8 @@ function FileView({ path, onBack, running }: { path: string; onBack: () => void;
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-slate-800/40 p-6">
-        {error ? (
+      <div ref={scrollRef} className="flex-1 overflow-y-auto bg-slate-800/40 p-6">
+        {error && !live ? (
           <p className="text-sm text-red-400">{(error as Error).message}</p>
         ) : draft !== null ? (
           <textarea
@@ -183,9 +202,9 @@ function FileView({ path, onBack, running }: { path: string; onBack: () => void;
         ) : (
           <div className="print-area mx-auto max-w-[8.5in] bg-white rounded-md shadow-xl px-12 py-10">
             <div ref={docRef}>
-              {data && (isMarkdown
-                ? <DocumentMarkdown>{data.content}</DocumentMarkdown>
-                : <pre className="whitespace-pre-wrap text-sm text-slate-800 font-sans">{data.content}</pre>)}
+              {content != null && (isMarkdown
+                ? <DocumentMarkdown>{content}</DocumentMarkdown>
+                : <pre className="whitespace-pre-wrap text-sm text-slate-800 font-sans">{content}</pre>)}
             </div>
           </div>
         )}

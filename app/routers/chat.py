@@ -1,8 +1,13 @@
+import json
+import queue
+
 from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.database import get_db
 from app.services.agent import request_stop, run_agent
+from app.services.events import broker
 
 router = APIRouter()
 
@@ -67,6 +72,7 @@ def _run_agent_task(conv_id: int, content: str):
         db.close()
     finally:
         _running.discard(conv_id)
+        broker.publish(conv_id, {"type": "done"})
 
 
 @router.post("/conversations/{conv_id}/messages")
@@ -87,3 +93,51 @@ def send_message(conv_id: int, body: SendMessage, background_tasks: BackgroundTa
 def stop_conversation(conv_id: int):
     request_stop(conv_id)
     return {"ok": True}
+
+
+KEEPALIVE_SECONDS = 15
+
+
+def _sse(event: dict) -> str:
+    return f"data: {json.dumps(event)}\n\n"
+
+
+def stream_events(conv_id: int, since: int = 0):
+    """Replay saved chat rows after `since`, then forward live events until the run is done.
+    Subscribing before reading the DB means nothing falls in the gap; rows that show up in
+    both places are skipped by id."""
+    q = broker.subscribe(conv_id)
+    try:
+        running = conv_id in _running
+        last_id = since
+        for row in get_messages(conv_id, since)["messages"]:
+            last_id = row["id"]
+            yield _sse({"type": "message", "message": row})
+        yield _sse({"type": "status", "running": running})
+        if not running:
+            yield _sse({"type": "done"})
+            return
+        while True:
+            try:
+                event = q.get(timeout=KEEPALIVE_SECONDS)
+            except queue.Empty:
+                yield ": keepalive\n\n"
+                continue
+            if event["type"] == "message":
+                if event["message"]["id"] <= last_id:
+                    continue
+                last_id = event["message"]["id"]
+            yield _sse(event)
+            if event["type"] == "done":
+                return
+    finally:
+        broker.unsubscribe(conv_id, q)
+
+
+@router.get("/conversations/{conv_id}/stream")
+def stream(conv_id: int, since: int = 0):
+    return StreamingResponse(
+        stream_events(conv_id, since),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

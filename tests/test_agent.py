@@ -2,17 +2,55 @@
 The agent loop, driven by a scripted fake Anthropic client so no real API calls happen.
 """
 import copy
+import json
 import subprocess
+from types import SimpleNamespace
 
+import jiter
 import pytest
 from anthropic.types.beta import BetaMessage
 
 from app.database import get_db
 from app.services import agent
+from app.services.events import broker
+
+
+class FakeStream:
+    """Mimics the SDK's MessageStream: iterating yields the same event shapes the real
+    stream does (content_block_start / text / input_json), then get_final_message()."""
+
+    def __init__(self, message):
+        self.message = message
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def __iter__(self):
+        for i, block in enumerate(self.message.content):
+            yield SimpleNamespace(type="content_block_start", index=i, content_block=block)
+            if block.type == "text":
+                mid = len(block.text) // 2
+                for chunk in (block.text[:mid], block.text[mid:]):
+                    yield SimpleNamespace(type="text", text=chunk)
+            elif block.type == "tool_use":
+                # Like the real API: raw JSON in small fragments. Like the real SDK: the
+                # snapshot omits strings that haven't finished streaming.
+                raw, sent = json.dumps(block.input), ""
+                for start in range(0, len(raw), 7):
+                    sent += raw[start:start + 7]
+                    snapshot = jiter.from_json(sent.encode(), partial_mode="on") if sent else {}
+                    yield SimpleNamespace(type="input_json", partial_json=raw[start:start + 7], snapshot=snapshot)
+
+    def get_final_message(self):
+        return self.message
 
 
 class FakeClient:
-    """Returns scripted responses in order and records every request it receives."""
+    """Streams scripted responses in order and records every request it receives.
+    A scripted exception is raised from the stream instead (like a JSON parse failure)."""
 
     def __init__(self, *responses):
         self.responses = list(responses)
@@ -20,9 +58,27 @@ class FakeClient:
         self.beta = self
         self.messages = self
 
-    def create(self, **kwargs):
+    def stream(self, **kwargs):
         self.calls.append(copy.deepcopy(kwargs))
-        return self.responses.pop(0)
+        nxt = self.responses.pop(0)
+        if isinstance(nxt, Exception):
+            raise nxt
+        return FakeStream(nxt)
+
+
+@pytest.fixture
+def events(conv_id, monkeypatch):
+    """Everything the agent publishes for this conversation, in order."""
+    monkeypatch.setattr(agent, "DRAFT_INTERVAL", 0)
+    q = broker.subscribe(conv_id)
+    out = []
+
+    def collected():
+        while not q.empty():
+            out.append(q.get_nowait())
+        return out
+    yield collected
+    broker.unsubscribe(conv_id, q)
 
 
 def reply(*blocks, stop_reason=None):
@@ -92,10 +148,13 @@ def test_request_uses_cached_system_prompt_and_tools(conv_id, workspace):
 
     call = fake.calls[0]
     assert call["model"] == agent.MODEL
+    assert call["max_tokens"] == 64000
     assert call["system"][0]["cache_control"] == {"type": "ephemeral"}
     assert {t["name"] for t in call["tools"]} == {
         "list_files", "read_file", "write_file", "edit_file", "search_files", "remember",
     }
+    # Tool inputs (whole documents) stream as they're written instead of arriving in one burst.
+    assert all(t["eager_input_streaming"] for t in call["tools"])
 
 
 def test_user_turn_carries_memory_and_file_list(conv_id, workspace):
@@ -219,3 +278,84 @@ def test_refusal_shows_friendly_message(conv_id, workspace):
     fake = FakeClient(reply(stop_reason="refusal"))
     agent.run_agent(conv_id, "something", client=fake, workspace=workspace)
     assert displayed(conv_id)[-1]["display_role"] == "error"
+
+
+def test_refusal_mid_tool_call_runs_nothing_and_leaves_no_dangling_tool_use(conv_id, workspace):
+    fake = FakeClient(
+        reply(tool("write_file", path="lessons/x.md", content="half"), stop_reason="refusal"),
+        reply(text("ok")),
+    )
+    agent.run_agent(conv_id, "first", client=fake, workspace=workspace)
+    agent.run_agent(conv_id, "second", client=fake, workspace=workspace)
+
+    assert "lessons/x.md" not in workspace.list_files()
+    sent = fake.calls[1]["messages"]
+    assert not any(b.get("type") == "tool_use" for m in sent for b in m["content"])
+
+
+# ── Validation (streamed tool inputs aren't validated by the API) ──────────────
+
+@pytest.mark.parametrize("bad_input", [
+    {"path": "lessons/x.md"},                       # missing content
+    {"path": "lessons/x.md", "content": 42},        # wrong type
+    {"path": "lessons/x.md", "content": "x", "extra": "y"},
+])
+def test_invalid_tool_input_is_rejected_without_running(conv_id, workspace, bad_input):
+    fake = FakeClient(reply(tool("write_file", **bad_input)), reply(text("retrying")))
+    agent.run_agent(conv_id, "go", client=fake, workspace=workspace)
+
+    assert "lessons/x.md" not in workspace.list_files()
+    result = fake.calls[1]["messages"][-1]["content"][0]
+    assert result["is_error"] is True
+    assert "INVALID_INPUT" in result["content"]
+
+
+def test_unparseable_stream_is_retried(conv_id, workspace, events):
+    fake = FakeClient(ValueError("Unable to parse tool parameter JSON"), reply(text("Here you go")))
+    agent.run_agent(conv_id, "go", client=fake, workspace=workspace)
+
+    assert len(fake.calls) == 2
+    assert {"type": "reset"} in events()  # tells the UI to drop the half-streamed text
+    assert displayed(conv_id)[-1]["display_content"] == "Here you go"
+
+
+# ── Live events ────────────────────────────────────────────────────────────────
+
+def test_text_streams_as_deltas(conv_id, workspace, events):
+    agent.run_agent(conv_id, "hi", client=FakeClient(reply(text("Hello Jenn!"))), workspace=workspace)
+    deltas = [e["text"] for e in events() if e["type"] == "delta"]
+    assert len(deltas) > 1
+    assert "".join(deltas) == "Hello Jenn!"
+
+
+def test_saved_chat_rows_are_published_with_their_ids(conv_id, workspace, events):
+    agent.run_agent(conv_id, "hi", client=FakeClient(reply(text("Hello"))), workspace=workspace)
+    published = [e["message"] for e in events() if e["type"] == "message"]
+    assert [(m["display_role"], m["display_content"]) for m in published] == [("user", "hi"), ("assistant", "Hello")]
+    assert published[0]["id"] < published[1]["id"]
+
+
+def test_document_streams_into_draft_events_while_being_written(conv_id, workspace, events):
+    doc = "# Worksheet\n\n1. What does Rainsford learn?"
+    fake = FakeClient(
+        reply(tool("write_file", path="lessons/mdg/worksheet.md", content=doc)),
+        reply(text("Done")),
+    )
+    agent.run_agent(conv_id, "worksheet", client=fake, workspace=workspace)
+
+    drafts = [e for e in events() if e["type"] == "draft"]
+    assert drafts and all(d["path"] == "lessons/mdg/worksheet.md" for d in drafts)
+    contents = [d["content"] for d in drafts if d["content"]]
+    assert doc.startswith(contents[0]) and len(contents[0]) < len(doc)
+    assert contents[-1] == doc
+
+
+def test_edits_announce_the_file_without_content(conv_id, workspace, events):
+    workspace.write("lessons/a.md", "old line")
+    fake = FakeClient(
+        reply(tool("edit_file", path="lessons/a.md", old_text="old line", new_text="new line")),
+        reply(text("Done")),
+    )
+    agent.run_agent(conv_id, "edit", client=fake, workspace=workspace)
+    drafts = [e for e in events() if e["type"] == "draft"]
+    assert drafts and drafts[0] == {"type": "draft", "path": "lessons/a.md", "content": None}

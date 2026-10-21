@@ -3,8 +3,8 @@ MARTY — a coding-agent-style loop over Jenn's workspace.
 
 MARTY works the way a coding assistant works in a repo: it reads what's already there,
 drafts and edits markdown files with small targeted edits, and keeps notes in MARTY.md.
-Every API message and every chat display line is saved to the DB as it happens so the
-frontend can poll for progress.
+Every API message and chat display line is saved to the DB, and live progress (streamed
+text, documents as they're written) is published to the event broker for the SSE stream.
 
 History is strictly append-only (thinking blocks are only valid when earlier turns are
 replayed unchanged), so per-turn context — memory, file list, date — rides along in each
@@ -12,17 +12,22 @@ new user message instead of the system prompt.
 """
 import json
 import os
+import time
 from datetime import date
 
+import jiter
 from anthropic import Anthropic
 
 from app.database import get_db
+from app.services.events import broker
 from app.services.workspace import MEMORY_FILE, Workspace, WorkspaceError, get_workspace
 
 MODEL = os.getenv("MARTY_MODEL", "claude-opus-5-5")
-MAX_TOKENS = 16000
+MAX_TOKENS = 64000
 MAX_ITERATIONS = 25
 MAX_LISTED_FILES = 300
+MAX_STREAM_ATTEMPTS = 3
+DRAFT_INTERVAL = 0.15  # seconds between live document snapshots sent to the UI
 
 SYSTEM_PROMPT = """You are MARTY, a teaching assistant for Jenn, who teaches 9th grade English 1 and \
 10th grade English 2 at a Texas public high school. You work in her workspace: a folder of markdown \
@@ -74,7 +79,9 @@ def _tool(name: str, description: str, properties: dict, required: list[str]) ->
     return {
         "name": name,
         "description": description,
-        "strict": True,
+        # Stream tool inputs as they're generated so documents appear live. The API doesn't
+        # validate eagerly streamed inputs, so validate_input() does.
+        "eager_input_streaming": True,
         "input_schema": {
             "type": "object",
             "properties": properties,
@@ -121,6 +128,24 @@ TOOLS = [
 
 # ── Tool execution ─────────────────────────────────────────────────────────────
 
+_SCHEMAS = {t["name"]: t["input_schema"] for t in TOOLS}
+
+
+def validate_input(name: str, args) -> str | None:
+    """Check a tool input against its schema. Returns an error message, or None if valid."""
+    schema = _SCHEMAS.get(name)
+    if schema is None:
+        return f"Unknown tool: {name}"
+    if not isinstance(args, dict):
+        return "Input must be an object"
+    missing = [k for k in schema["required"] if k not in args]
+    extra = [k for k in args if k not in schema["properties"]]
+    wrong = [k for k, v in args.items() if k in schema["properties"] and not isinstance(v, str)]
+    if missing or extra or wrong:
+        return json.dumps({"INVALID_INPUT": args, "missing": missing, "unexpected": extra, "not_strings": wrong})
+    return None
+
+
 def execute_tool(ws: Workspace, name: str, args: dict) -> tuple[str, str, str | None]:
     """Run a tool. Returns (result for the model, one-line summary for chat, file path shown)."""
     if name == "list_files":
@@ -147,7 +172,7 @@ def execute_tool(ws: Workspace, name: str, args: dict) -> tuple[str, str, str | 
 
 def _save(conversation_id, *, api_role=None, api_content=None, display_role=None, display_content="", path=None):
     db = get_db()
-    db.execute(
+    cur = db.execute(
         "INSERT INTO messages (conversation_id, api_role, api_content, display_role, display_content, path) "
         "VALUES (?,?,?,?,?,?)",
         (conversation_id, api_role, json.dumps(api_content) if api_content is not None else None,
@@ -155,7 +180,12 @@ def _save(conversation_id, *, api_role=None, api_content=None, display_role=None
     )
     db.execute("UPDATE conversations SET updated_at=CURRENT_TIMESTAMP WHERE id=?", (conversation_id,))
     db.commit()
+    row = db.execute(
+        "SELECT id, display_role, display_content, path, created_at FROM messages WHERE id=?", (cur.lastrowid,)
+    ).fetchone()
     db.close()
+    if display_role:
+        broker.publish(conversation_id, {"type": "message", "message": dict(row)})
 
 
 def _load_history(conversation_id: int) -> list[dict]:
@@ -238,30 +268,25 @@ def _loop(conversation_id: int, client, ws: Workspace):
             _save(conversation_id, display_role="assistant", display_content=STOPPED)
             return
 
-        response = client.beta.messages.create(
-            model=MODEL,
-            max_tokens=MAX_TOKENS,
-            system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
-            tools=TOOLS,
-            messages=_load_history(conversation_id),
-            cache_control={"type": "ephemeral"},
-            output_config={"effort": "medium"},
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-        )
-
+        response = _stream_response(conversation_id, client)
         content = [b.model_dump(exclude_none=True) for b in response.content]
         said = "\n\n".join(b["text"] for b in content if b["type"] == "text").strip()
-        if content:
-            _save(conversation_id, api_role="assistant", api_content=content,
-                  display_role="assistant" if said else None, display_content=said)
+        tool_uses = [b for b in content if b["type"] == "tool_use"]
 
         if response.stop_reason == "refusal":
+            # A refusal can cut a tool call off mid-input: never run it, and don't keep a
+            # tool_use in history that has no matching result.
+            if content and not tool_uses:
+                _save(conversation_id, api_role="assistant", api_content=content)
+            broker.publish(conversation_id, {"type": "reset"})
             _save(conversation_id, display_role="error",
                   display_content="MARTY couldn't help with that request. Try rephrasing it?")
             return
 
-        tool_uses = [b for b in content if b["type"] == "tool_use"]
+        if content:
+            _save(conversation_id, api_role="assistant", api_content=content,
+                  display_role="assistant" if said else None, display_content=said)
+
         if not tool_uses:
             if response.stop_reason == "max_tokens":
                 _save(conversation_id, display_role="error",
@@ -281,6 +306,10 @@ def _loop(conversation_id: int, client, ws: Workspace):
                            "Write large files in smaller pieces (write a first part, then edit_file to add more).",
                     error=True))
                 continue
+            invalid = validate_input(block["name"], block["input"])
+            if invalid:
+                results.append(_result(block, invalid, error=True))
+                continue
             try:
                 result, summary, path = execute_tool(ws, block["name"], block["input"])
                 results.append(_result(block, result))
@@ -296,6 +325,78 @@ def _loop(conversation_id: int, client, ws: Workspace):
 
     _save(conversation_id, display_role="error",
           display_content="MARTY took too many steps on that one. Tell it how to continue.")
+
+
+def _stream_response(conversation_id: int, client):
+    """Make one model call, publishing text and documents live as they stream in."""
+    for _ in range(MAX_STREAM_ATTEMPTS):
+        try:
+            with client.beta.messages.stream(
+                model=MODEL,
+                max_tokens=MAX_TOKENS,
+                system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+                tools=TOOLS,
+                messages=_load_history(conversation_id),
+                cache_control={"type": "ephemeral"},
+                output_config={"effort": "medium"},
+                betas=["server-side-fallback-2026-07-01"],
+                fallbacks="default",
+            ) as stream:
+                tool_name, raw, announced, last_draft = None, "", False, 0.0
+                for event in stream:
+                    if event.type == "content_block_start":
+                        block = event.content_block
+                        tool_name = block.name if block.type == "tool_use" else None
+                        raw, announced = "", False
+                    elif event.type == "text":
+                        broker.publish(conversation_id, {"type": "delta", "text": event.text})
+                    elif event.type == "input_json" and tool_name in ("write_file", "edit_file"):
+                        raw += event.partial_json
+                        if tool_name == "edit_file" and announced:
+                            continue
+                        now = time.monotonic()
+                        if announced and now - last_draft < DRAFT_INTERVAL:
+                            continue
+                        # The SDK's own snapshot drops unfinished strings, which would hide the
+                        # document until it's complete — parse the raw fragments instead.
+                        draft = _draft(tool_name, _parse_partial(raw))
+                        if draft:
+                            broker.publish(conversation_id, {"type": "draft", **draft})
+                            announced, last_draft = True, now
+                final = stream.get_final_message()
+                if tool_name == "write_file" and announced:
+                    # The throttle may have skipped the tail; send the finished document.
+                    draft = _draft(tool_name, _parse_partial(raw))
+                    if draft:
+                        broker.publish(conversation_id, {"type": "draft", **draft})
+                return final
+        except ValueError:
+            # The SDK couldn't parse a streamed tool input. There's no tool_use id to answer,
+            # so drop what was streamed and ask again.
+            broker.publish(conversation_id, {"type": "reset"})
+    raise RuntimeError("MARTY's reply came back garbled several times in a row. Try again?")
+
+
+def _parse_partial(raw: str):
+    try:
+        return jiter.from_json(raw.encode(), partial_mode="trailing-strings")
+    except ValueError:
+        return None
+
+
+def _draft(tool_name: str, snapshot) -> dict | None:
+    """The file a partially-streamed write/edit targets, once its path is complete.
+    Keys stream in order, so the path is complete as soon as another key follows it."""
+    if not isinstance(snapshot, dict):
+        return None
+    keys = list(snapshot)
+    path = snapshot.get("path")
+    if not isinstance(path, str) or keys[-1] == "path":
+        return None
+    if tool_name == "write_file":
+        content = snapshot.get("content")
+        return {"path": path, "content": content} if isinstance(content, str) else None
+    return {"path": path, "content": None}
 
 
 def _result(block: dict, content: str, error: bool = False) -> dict:

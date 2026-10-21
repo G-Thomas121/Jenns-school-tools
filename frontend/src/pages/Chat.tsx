@@ -2,10 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { Brain, FileText, Pencil, Search, Send, Square } from 'lucide-react'
-import { createConversation, getMessages, sendMessage, stopConversation } from '../api'
+import { createConversation, sendMessage, stopConversation, streamUrl } from '../api'
 import DocPane from '../components/DocPane'
 import { ChatMarkdown } from '../components/Markdown'
-import type { Message } from '../types'
+import type { Draft, Message, StreamEvent } from '../types'
 
 const STARTERS = [
   'Plan a 50-minute English 1 lesson on ',
@@ -21,55 +21,67 @@ export default function Chat() {
 
   const [messages, setMessages] = useState<Message[]>([])
   const [running, setRunning] = useState(false)
+  const [liveText, setLiveText] = useState('')   // assistant text streaming in right now
+  const [draft, setDraft] = useState<Draft | null>(null)  // document streaming in right now
+  const [streamNonce, setStreamNonce] = useState(0)  // bump to (re)open the event stream
   const [input, setInput] = useState('')
   const [openPath, setOpenPath] = useState<string | null>(null)
   const lastId = useRef(0)
-  const activeConv = useRef<number | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  const handleNew = useCallback((msgs: Message[]) => {
-    for (const m of msgs) {
-      if (m.display_role !== 'tool' || !m.path) continue
+  const addMessage = useCallback((m: Message) => {
+    // Streams can overlap (StrictMode, reconnects) — skip rows already shown.
+    if (m.id <= lastId.current) return
+    lastId.current = m.id
+    setMessages(prev => [...prev, m])
+    if (m.display_role === 'assistant') setLiveText('')
+    if (m.display_role === 'tool' && m.path) {
       qc.invalidateQueries({ queryKey: ['file', m.path] })
       qc.invalidateQueries({ queryKey: ['files'] })
       // Follow along: show whatever MARTY just wrote or edited.
-      if (/^(Wrote|Edited) /.test(m.display_content)) setOpenPath(m.path)
+      if (/^(Wrote|Edited) /.test(m.display_content)) {
+        setOpenPath(m.path)
+        setDraft(d => (d?.path === m.path ? null : d))
+      }
     }
   }, [qc])
 
-  const poll = useCallback(async (id: number) => {
-    const res = await getMessages(id, lastId.current)
-    // Polls can overlap (StrictMode, a send racing the interval) or outlive a conversation
-    // switch — drop anything stale or already shown.
-    if (activeConv.current !== id) return
-    const fresh = res.messages.filter(m => m.id > lastId.current)
-    if (fresh.length) {
-      lastId.current = fresh[fresh.length - 1].id
-      setMessages(prev => [...prev, ...fresh])
-      handleNew(fresh)
-    }
-    setRunning(res.running)
-    if (!res.running) qc.invalidateQueries({ queryKey: ['conversations'] })
-  }, [handleNew, qc])
-
-  // Load the conversation when it changes.
+  // Fresh state for each conversation. (Declared before the stream effect so it runs first.)
   useEffect(() => {
-    activeConv.current = convId
     setMessages([])
     lastId.current = 0
     setRunning(false)
-    if (convId) poll(convId).catch(() => {})
-  }, [convId, poll])
+    setLiveText('')
+    setDraft(null)
+  }, [convId])
 
-  // Poll while MARTY is working.
+  // Each connection replays saved rows after lastId, reports whether MARTY is running,
+  // streams live events if so, and ends with "done".
   useEffect(() => {
-    if (!convId || !running) return
-    const t = setInterval(() => poll(convId).catch(() => {}), 1000)
-    return () => clearInterval(t)
-  }, [convId, running, poll])
+    if (!convId) return
+    const es = new EventSource(streamUrl(convId, lastId.current))
+    es.onmessage = e => {
+      const ev = JSON.parse(e.data) as StreamEvent
+      switch (ev.type) {
+        case 'message': addMessage(ev.message); break
+        case 'delta': setLiveText(t => t + ev.text); break
+        case 'draft': setDraft({ path: ev.path, content: ev.content }); setOpenPath(ev.path); break
+        case 'reset': setLiveText(''); setDraft(null); break
+        case 'status': setRunning(ev.running); break
+        case 'done':
+          es.close()
+          setRunning(false)
+          setLiveText('')
+          setDraft(null)
+          qc.invalidateQueries({ queryKey: ['conversations'] })
+          break
+      }
+    }
+    return () => es.close()
+  }, [convId, streamNonce, addMessage, qc])
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, running])
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, running, liveText])
 
   const send = async () => {
     const content = input.trim()
@@ -79,13 +91,12 @@ export default function Chat() {
     try {
       if (!id) {
         id = (await createConversation()).id
-        activeConv.current = id
         navigate(`/chat/${id}`)
         qc.invalidateQueries({ queryKey: ['conversations'] })
       }
       await sendMessage(id, content)
       setRunning(true)
-      await poll(id)
+      setStreamNonce(n => n + 1)
     } catch (e) {
       setInput(content)
       setMessages(prev => [...prev, {
@@ -104,7 +115,8 @@ export default function Chat() {
           ) : (
             <div className="px-6 py-6 space-y-3 max-w-3xl mx-auto">
               {messages.map(m => <MessageRow key={m.id} msg={m} onOpen={setOpenPath} />)}
-              {running && <Working />}
+              {liveText && <AssistantBubble text={liveText} />}
+              {running && !liveText && <Working />}
               <div ref={endRef} />
             </div>
           )}
@@ -132,7 +144,7 @@ export default function Chat() {
         </div>
       </div>
 
-      <DocPane path={openPath} onOpen={setOpenPath} running={running} />
+      <DocPane path={openPath} onOpen={setOpenPath} running={running} draft={draft} />
     </div>
   )
 }
@@ -167,16 +179,7 @@ function MessageRow({ msg, onOpen }: { msg: Message; onOpen: (path: string) => v
     )
   }
 
-  if (msg.display_role === 'assistant') {
-    return (
-      <div className="flex gap-3 items-start slide-up">
-        <Avatar />
-        <div className="bg-slate-800 text-slate-100 rounded-2xl rounded-tl-sm px-4 py-2.5 max-w-[85%] min-w-0">
-          <ChatMarkdown>{msg.display_content}</ChatMarkdown>
-        </div>
-      </div>
-    )
-  }
+  if (msg.display_role === 'assistant') return <AssistantBubble text={msg.display_content} />
 
   if (msg.display_role === 'tool') {
     const Icon = msg.path === 'MARTY.md' ? Brain
@@ -195,6 +198,18 @@ function MessageRow({ msg, onOpen }: { msg: Message; onOpen: (path: string) => v
   return (
     <div className="ml-10 bg-red-950 border border-red-800 rounded-xl px-4 py-2.5 text-red-300 text-sm slide-up">
       {msg.display_content}
+    </div>
+  )
+}
+
+function AssistantBubble({ text }: { text: string }) {
+  // No entry animation: the streamed bubble is swapped for the saved message when it lands.
+  return (
+    <div className="flex gap-3 items-start">
+      <Avatar />
+      <div className="bg-slate-800 text-slate-100 rounded-2xl rounded-tl-sm px-4 py-2.5 max-w-[85%] min-w-0">
+        <ChatMarkdown>{text}</ChatMarkdown>
+      </div>
     </div>
   )
 }

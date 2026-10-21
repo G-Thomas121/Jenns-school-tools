@@ -1,4 +1,4 @@
-import type { Conversation, Message, Suggestion } from './types'
+import type { Conversation, Suggestion } from './types'
 
 async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
@@ -18,8 +18,7 @@ const body = (data: unknown) => ({ body: JSON.stringify(data) })
 export const getConversations = () => req<Conversation[]>('/api/chat/conversations')
 export const createConversation = () => req<Conversation>('/api/chat/conversations', { method: 'POST' })
 export const deleteConversation = (id: number) => req<{ ok: boolean }>(`/api/chat/conversations/${id}`, { method: 'DELETE' })
-export const getMessages = (convId: number, since = 0) =>
-  req<{ messages: Message[]; running: boolean }>(`/api/chat/conversations/${convId}/messages?since=${since}`)
+export const streamUrl = (convId: number, since = 0) => `/api/chat/conversations/${convId}/stream?since=${since}`
 export const sendMessage = (convId: number, content: string) =>
   req<{ ok: boolean }>(`/api/chat/conversations/${convId}/messages`, { method: 'POST', ...body({ content }) })
 export const stopConversation = (convId: number) =>

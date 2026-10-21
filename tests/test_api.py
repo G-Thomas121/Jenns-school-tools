@@ -118,3 +118,76 @@ def test_upload_goes_to_curriculum_and_commits(client, workspace):
 def test_upload_rejects_unsupported_types(client):
     r = client.post("/api/files/upload", files={"file": ("virus.exe", b"x", "application/octet-stream")})
     assert r.status_code == 400
+
+
+# ── Streaming ──────────────────────────────────────────────────────────────────
+
+import json
+
+from app.services.events import broker
+
+
+def sse_events(body: str) -> list[dict]:
+    return [json.loads(line[len("data: "):]) for line in body.splitlines() if line.startswith("data: ")]
+
+
+def insert_rows(conv_id, *rows):
+    from app.database import get_db
+    db = get_db()
+    ids = [db.execute(
+        "INSERT INTO messages (conversation_id, display_role, display_content) VALUES (?,?,?)",
+        (conv_id, role, content),
+    ).lastrowid for role, content in rows]
+    db.commit()
+    db.close()
+    return ids
+
+
+def test_stream_replays_saved_rows_then_finishes_when_idle(client):
+    conv = client.post("/api/chat/conversations").json()
+    insert_rows(conv["id"], ("user", "hi"), ("assistant", "hello"))
+
+    r = client.get(f"/api/chat/conversations/{conv['id']}/stream")
+    assert r.headers["content-type"].startswith("text/event-stream")
+    events = sse_events(r.text)
+    assert [e["type"] for e in events] == ["message", "message", "status", "done"]
+    assert events[2] == {"type": "status", "running": False}
+    assert [e["message"]["display_content"] for e in events[:2]] == ["hi", "hello"]
+
+
+def test_stream_since_skips_rows_already_shown(client):
+    conv = client.post("/api/chat/conversations").json()
+    first, _ = insert_rows(conv["id"], ("user", "hi"), ("assistant", "hello"))
+    events = sse_events(client.get(f"/api/chat/conversations/{conv['id']}/stream?since={first}").text)
+    assert [e.get("message", {}).get("display_content") for e in events] == ["hello", None, None]
+
+
+def test_stream_forwards_live_events_until_done(client):
+    conv = client.post("/api/chat/conversations").json()
+    cid = conv["id"]
+    (backlog_id,) = insert_rows(cid, ("user", "hi"))
+    chat_router._running.add(cid)
+    try:
+        gen = chat_router.stream_events(cid, since=0)
+        out = [next(gen), next(gen)]  # backlog row + status; the generator is now subscribed
+        broker.publish(cid, {"type": "message", "message": {"id": backlog_id, "display_content": "hi"}})  # duplicate
+        broker.publish(cid, {"type": "delta", "text": "Hel"})
+        broker.publish(cid, {"type": "done"})
+        out += list(gen)
+    finally:
+        chat_router._running.discard(cid)
+
+    events = sse_events("".join(out))
+    assert [e["type"] for e in events] == ["message", "status", "delta", "done"]
+    assert events[1] == {"type": "status", "running": True}
+
+
+def test_finished_run_publishes_done(client, monkeypatch):
+    monkeypatch.setattr(chat_router, "run_agent", lambda cid, msg: None)
+    conv = client.post("/api/chat/conversations").json()
+    q = broker.subscribe(conv["id"])
+    try:
+        client.post(f"/api/chat/conversations/{conv['id']}/messages", json={"content": "hi"})
+        assert q.get_nowait() == {"type": "done"}
+    finally:
+        broker.unsubscribe(conv["id"], q)
