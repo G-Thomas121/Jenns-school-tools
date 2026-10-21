@@ -1,4 +1,4 @@
-.PHONY: up down build logs update test seed check-python
+.PHONY: up down build logs update test check-python setup run
 
 # ── Docker (primary) ──────────────────────────────────────────────────────────
 up:
@@ -36,7 +36,7 @@ setup: check-python
 	@$(PYTHON) -m venv $(VENV)
 	@$(PIP) install --upgrade pip -q
 	@$(PIP) install -r requirements.txt -q
-	@mkdir -p curriculum outputs data submissions/inbox submissions/processed
+	@mkdir -p data workspace
 	@[ -f .env ] || cp .env.example .env
 	@$(VENV)/bin/python -m app.database
 	@echo "Done! Run 'make run' to start backend only."
@@ -46,6 +46,3 @@ run:
 
 test:
 	@$(VENV)/bin/pytest tests/ -v
-
-seed:
-	@$(VENV)/bin/python seed.py

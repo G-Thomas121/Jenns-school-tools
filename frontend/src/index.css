@@ -64,3 +64,16 @@
   to { opacity: 1; }
 }
 .fade-in { animation: fade-in 0.4s ease; }
+
+/* Printing a document prints only the page in the document pane, on plain paper. */
+@media print {
+  @page { margin: 0.6in; }
+  body { background: white !important; }
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area {
+    position: absolute; inset: 0 auto auto 0; width: 100%; max-width: none;
+    padding: 0 !important; box-shadow: none !important; border-radius: 0 !important;
+  }
+  .doc table, .doc tr, .doc h2, .doc h3 { break-inside: avoid; }
+}

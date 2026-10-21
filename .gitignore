@@ -7,4 +7,6 @@ __pycache__/
 data/
 outputs/
 curriculum/
+workspace/
+frontend/dist/
 .DS_Store

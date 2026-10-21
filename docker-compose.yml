@@ -5,9 +5,7 @@ services:
       - "8000:8000"
     volumes:
       - ./data:/app/data
-      - ./curriculum:/app/curriculum
-      - ./outputs:/app/outputs
-      - ./submissions:/app/submissions
+      - ./workspace:/app/workspace
       - ./.env:/app/.env:ro
       - ./app:/app/app
     env_file: .env
