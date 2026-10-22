@@ -108,15 +108,31 @@ def test_jenn_can_edit_a_file_directly_and_it_commits(client, workspace):
 
 
 def test_upload_goes_to_curriculum_and_commits(client, workspace):
-    r = client.post("/api/files/upload", files={"file": ("../Unit 2 Notes.txt", b"Theme vs. topic", "text/plain")})
+    r = client.post("/api/files/upload", files={"files": ("../Unit 2 Notes.txt", b"Theme vs. topic", "text/plain")})
     assert r.status_code == 200
-    assert r.json()["path"] == "curriculum/Unit 2 Notes.txt"
+    assert r.json()["saved"] == ["curriculum/Unit 2 Notes.txt"]
     assert workspace.read("curriculum/Unit 2 Notes.txt") == "Theme vs. topic"
     assert git_log(workspace)[0] == "Upload Unit 2 Notes.txt"
 
 
+def test_folder_upload_to_a_lesson_keeps_relative_paths(client, workspace):
+    r = client.post(
+        "/api/files/upload",
+        data={"lesson": "ramayana-canto3", "paths": ["Canto 3/a.txt", "Canto 3/sub/b.txt", "Canto 3/c.jpg"]},
+        files=[("files", ("a.txt", b"one", "text/plain")),
+               ("files", ("b.txt", b"two", "text/plain")),
+               ("files", ("c.jpg", b"img", "image/jpeg"))],
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["saved"] == ["lessons/ramayana-canto3/sources/a.txt", "lessons/ramayana-canto3/sources/sub/b.txt"]
+    assert body["skipped"] == ["Canto 3/c.jpg"]
+    assert body["indexes"] == ["lessons/ramayana-canto3/sources/_index.md"]
+    assert git_log(workspace)[0] == "Upload 2 files to lessons/ramayana-canto3/sources"
+
+
 def test_upload_rejects_unsupported_types(client):
-    r = client.post("/api/files/upload", files={"file": ("virus.exe", b"x", "application/octet-stream")})
+    r = client.post("/api/files/upload", files={"files": ("virus.exe", b"x", "application/octet-stream")})
     assert r.status_code == 400
 
 

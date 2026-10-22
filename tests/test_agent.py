@@ -229,6 +229,21 @@ def test_tool_error_is_reported_to_model_and_loop_continues(conv_id, workspace):
     assert displayed(conv_id)[-1]["display_content"] == "That file doesn't exist yet."
 
 
+def test_read_file_can_start_partway_through(conv_id, workspace):
+    workspace.write("lessons/a/plan.md", "one\ntwo\nthree")
+    fake = FakeClient(reply(tool("read_file", path="lessons/a/plan.md", start_line=2)), reply(text("ok")))
+    agent.run_agent(conv_id, "go", client=fake, workspace=workspace)
+    assert fake.calls[1]["messages"][-1]["content"][0]["content"] == "two\nthree"
+
+
+@pytest.mark.parametrize("start_line", ["2", True])
+def test_read_file_start_line_must_be_a_number(conv_id, workspace, start_line):
+    workspace.write("lessons/a/plan.md", "one")
+    fake = FakeClient(reply(tool("read_file", path="lessons/a/plan.md", start_line=start_line)), reply(text("ok")))
+    agent.run_agent(conv_id, "go", client=fake, workspace=workspace)
+    assert "INVALID_INPUT" in fake.calls[1]["messages"][-1]["content"][0]["content"]
+
+
 def test_remember_tool_updates_memory(conv_id, workspace):
     fake = FakeClient(
         reply(tool("remember", note="3rd period is an inclusion class")),

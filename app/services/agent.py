@@ -47,6 +47,12 @@ files, much like a coding assistant works in a code repository.
 building on them instead of guessing at their contents.
 - `lessons/<lesson-slug>/` — one folder per lesson, e.g. `lessons/most-dangerous-game-motivation/`. \
 Typical files: `lesson-plan.md`, `worksheet.md`, `worksheet-key.md`, `foldable.md`, `slides.md`.
+- `lessons/<lesson-slug>/sources/` — files Jenn uploaded for that lesson, often a whole folder of \
+PDFs. Read-only, like `curriculum/`.
+- `_index.md` — any folder Jenn uploaded has one, with a one-line summary per file. Read it first, \
+then open only the files you need, or use `search_files` to find a passage across all of them \
+(the hit's line number works as `start_line` for `read_file`). Files flagged as scanned have \
+little readable text; ask Jenn about them rather than guessing.
 
 Jenn sees whichever file you last wrote or edited in a document pane next to the chat, rendered as \
 formatted markdown. So don't paste a whole document into chat; write it to the file and use chat \
@@ -107,8 +113,13 @@ TOOLS = [
     _tool("list_files", "List every file in the workspace.", {}, []),
     _tool(
         "read_file",
-        "Read a workspace file. PDF and DOCX files in curriculum/ are returned as extracted text.",
-        {"path": PATH}, ["path"],
+        "Read a workspace file. PDF and DOCX files are returned as extracted text, with PDF pages "
+        "marked \"--- Page N ---\". Long files come back in pieces; the result says which "
+        "start_line to pass to keep reading.",
+        {"path": PATH,
+         "start_line": {"type": "integer", "description": "1-based line to start from (default 1), "
+                                                          "e.g. a line number from search_files"}},
+        ["path"],
     ),
     _tool(
         "write_file",
@@ -150,10 +161,16 @@ def validate_input(name: str, args) -> str | None:
         return "Input must be an object"
     missing = [k for k in schema["required"] if k not in args]
     extra = [k for k in args if k not in schema["properties"]]
-    wrong = [k for k, v in args.items() if k in schema["properties"] and not isinstance(v, str)]
+    wrong = [k for k, v in args.items() if k in schema["properties"] and not _is_type(v, schema["properties"][k]["type"])]
     if missing or extra or wrong:
-        return json.dumps({"INVALID_INPUT": args, "missing": missing, "unexpected": extra, "not_strings": wrong})
+        return json.dumps({"INVALID_INPUT": args, "missing": missing, "unexpected": extra, "wrong_type": wrong})
     return None
+
+
+def _is_type(value, json_type: str) -> bool:
+    if json_type == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    return isinstance(value, str)
 
 
 def execute_tool(ws: Workspace, name: str, args: dict) -> tuple[str, str, str | None]:
@@ -161,7 +178,7 @@ def execute_tool(ws: Workspace, name: str, args: dict) -> tuple[str, str, str | 
     if name == "list_files":
         return "\n".join(ws.list_files()), "Looked through the workspace", None
     if name == "read_file":
-        return ws.read(args["path"]), f"Read {args['path']}", args["path"]
+        return ws.read_lines(args["path"], args.get("start_line", 1)), f"Read {args['path']}", args["path"]
     if name == "write_file":
         ws.write(args["path"], args["content"])
         return f"Wrote {args['path']}", f"Wrote {args['path']}", args["path"]

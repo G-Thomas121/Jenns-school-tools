@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Lightbulb, MessageSquare, Paperclip, Plus, Trash2 } from 'lucide-react'
-import { deleteConversation, getConversations, uploadFile } from '../api'
+import { deleteConversation, describeUpload, getConversations, uploadFiles } from '../api'
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate()
@@ -19,10 +19,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   })
 
   const upload = useMutation({
-    mutationFn: uploadFile,
-    onSuccess: ({ path }) => {
+    mutationFn: (files: File[]) => uploadFiles(files),
+    onSuccess: result => {
       qc.invalidateQueries({ queryKey: ['files'] })
-      setUploadStatus({ msg: `Added ${path}`, ok: true })
+      setUploadStatus({ msg: describeUpload(result), ok: true })
       setTimeout(() => setUploadStatus(null), 4000)
     },
     onError: (e: Error) => {
@@ -59,8 +59,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <label className={`btn btn-ghost btn-sm w-full cursor-pointer ${upload.isPending ? 'opacity-60' : ''}`}>
             <Paperclip size={13} /> {upload.isPending ? 'Uploading…' : 'Upload curriculum'}
             <input
-              type="file" accept=".pdf,.docx,.txt,.md" className="hidden" disabled={upload.isPending}
-              onChange={e => { const f = e.target.files?.[0]; if (f) { upload.mutate(f); e.target.value = '' } }}
+              type="file" accept=".pdf,.docx,.txt,.md" multiple className="hidden" disabled={upload.isPending}
+              onChange={e => { const fs = [...(e.target.files ?? [])]; if (fs.length) { upload.mutate(fs); e.target.value = '' } }}
             />
           </label>
           <NavLink to="/suggestions" className={({ isActive }) =>

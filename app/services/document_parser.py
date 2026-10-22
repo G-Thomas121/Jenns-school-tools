@@ -4,6 +4,15 @@ MAX_CHARS_PER_DOC = 60_000
 
 
 def parse_document(filepath: str) -> str:
+    """Extracted text, cut off at MAX_CHARS_PER_DOC."""
+    text = extract_text(filepath)
+    if len(text) > MAX_CHARS_PER_DOC:
+        text = text[:MAX_CHARS_PER_DOC] + f"\n\n[...truncated at {MAX_CHARS_PER_DOC} characters]"
+    return text
+
+
+def extract_text(filepath: str) -> str:
+    """The full text of a document. PDF pages are marked "--- Page N ---"."""
     path = Path(filepath)
     if not path.exists():
         return f"[File not found: {path.name}]"
@@ -17,8 +26,10 @@ def parse_document(filepath: str) -> str:
         try:
             from pypdf import PdfReader
             reader = PdfReader(str(path))
-            pages = [page.extract_text() or "" for page in reader.pages]
-            text = "\n\n".join(pages)
+            text = "\n\n".join(
+                f"--- Page {i} ---\n{(page.extract_text() or '').strip()}"
+                for i, page in enumerate(reader.pages, start=1)
+            )
         except Exception as e:
             return f"[Could not parse PDF {path.name}: {e}]"
 
@@ -49,8 +60,5 @@ def parse_document(filepath: str) -> str:
 
     else:
         return f"[Unsupported file type: {suffix}]"
-
-    if len(text) > MAX_CHARS_PER_DOC:
-        text = text[:MAX_CHARS_PER_DOC] + f"\n\n[...truncated at {MAX_CHARS_PER_DOC} characters]"
 
     return text.strip()

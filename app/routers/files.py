@@ -1,13 +1,12 @@
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
+from app.services.sources import UploadError, import_files
 from app.services.workspace import WorkspaceError, get_workspace
 
 router = APIRouter()
-
-SUPPORTED_UPLOADS = {".pdf", ".docx", ".txt", ".md"}
 
 
 @router.get("")
@@ -41,11 +40,22 @@ def write_file(body: FileContent):
 
 
 @router.post("/upload")
-async def upload(file: UploadFile = File(...)):
-    name = Path(file.filename or "").name
-    if Path(name).suffix.lower() not in SUPPORTED_UPLOADS:
-        raise HTTPException(400, f"Unsupported file type. Accepted: {', '.join(sorted(SUPPORTED_UPLOADS))}")
+def upload(
+    files: list[UploadFile] = File(...),
+    paths: list[str] = Form(default=[]),
+    lesson: str | None = Form(default=None),
+):
+    """One file or a whole folder. `paths` carries each file's path inside the picked folder
+    (browsers drop it from the filename), in the same order as `files`."""
+    names = paths if len(paths) == len(files) else [f.filename or "" for f in files]
     ws = get_workspace()
-    (ws.root / "curriculum" / name).write_bytes(await file.read())
-    ws.commit(f"Upload {name}")
-    return {"path": f"curriculum/{name}"}
+    try:
+        result = import_files(ws, [(n, f.file.read()) for n, f in zip(names, files)], lesson=lesson or None)
+    except (UploadError, WorkspaceError) as e:
+        raise HTTPException(400, str(e))
+    saved = result["saved"]
+    if len(saved) == 1:
+        ws.commit(f"Upload {Path(saved[0]).name}")
+    else:
+        ws.commit(f"Upload {len(saved)} files to {result['indexes'][0].rsplit('/', 1)[0]}")
+    return result

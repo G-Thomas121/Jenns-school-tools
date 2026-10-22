@@ -135,3 +135,93 @@ def test_commit_records_changes(ws):
 def test_commit_without_changes_is_noop(ws):
     assert ws.commit("Nothing") is False
     assert _git_log(ws) == ["Set up workspace"]
+
+
+# ── Lesson sources & large files ───────────────────────────────────────────────
+
+from tests.conftest import make_pdf
+
+
+def test_lesson_sources_folders_are_read_only(ws):
+    (ws.root / "lessons/canto3/sources").mkdir(parents=True)
+    with pytest.raises(WorkspaceError, match="read-only"):
+        ws.write("lessons/canto3/sources/notes.md", "overwritten")
+    ws.write("lessons/canto3/lesson-plan.md", "# Plan")  # the lesson itself stays writable
+
+
+def test_pdf_text_is_marked_by_page(ws):
+    (ws.root / "curriculum/epic.pdf").write_bytes(make_pdf(["Rama is exiled", "Sita is taken"]))
+    text = ws.read("curriculum/epic.pdf")
+    assert text.index("--- Page 1 ---") < text.index("Rama is exiled")
+    assert text.index("--- Page 2 ---") < text.index("Sita is taken")
+
+
+def test_long_files_are_read_whole_by_the_app(ws):
+    (ws.root / "curriculum/long.txt").write_text("x" * 100_000)
+    assert len(ws.read("curriculum/long.txt")) == 100_000
+
+
+def test_read_lines_pages_through_long_files(ws):
+    lines = [f"line {i} " + "x" * 50 for i in range(1, 5001)]
+    (ws.root / "curriculum/long.txt").write_text("\n".join(lines))
+
+    first = ws.read_lines("curriculum/long.txt")
+    assert first.startswith("line 1 ")
+    assert "line 5000 " not in first
+    shown = first.count("\nline ") + 1
+    assert f"start_line={shown + 1}" in first  # tells MARTY where to pick up
+
+    rest = ws.read_lines("curriculum/long.txt", start_line=4999)
+    assert rest.startswith("line 4999 ")
+    assert "line 5000 " in rest
+    assert "start_line=" not in rest
+
+
+def test_read_lines_returns_short_files_unchanged(ws):
+    ws.write("lessons/a/plan.md", "# Plan\nBody")
+    assert ws.read_lines("lessons/a/plan.md") == "# Plan\nBody"
+
+
+def test_read_lines_past_the_end_says_so(ws):
+    ws.write("lessons/a/plan.md", "# Plan\nBody")
+    with pytest.raises(WorkspaceError, match="only 2 lines"):
+        ws.read_lines("lessons/a/plan.md", start_line=10)
+
+
+def test_extracted_text_is_cached_until_the_file_changes(ws, monkeypatch):
+    from app.services import workspace as workspace_module
+    calls = []
+    real = workspace_module.extract_text
+    monkeypatch.setattr(workspace_module, "extract_text", lambda p: calls.append(p) or real(p))
+
+    pdf = ws.root / "curriculum/epic.pdf"
+    pdf.write_bytes(make_pdf(["First draft"]))
+    assert "First draft" in ws.read("curriculum/epic.pdf")
+    ws.search("anything")
+    ws.read("curriculum/epic.pdf")
+    assert len(calls) == 1
+
+    import os, time
+    pdf.write_bytes(make_pdf(["Second draft"]))
+    later = time.time() + 5
+    os.utime(pdf, (later, later))
+    assert "Second draft" in ws.read("curriculum/epic.pdf")
+    assert len(calls) == 2
+
+
+def test_text_cache_is_hidden_and_not_committed(ws):
+    (ws.root / "curriculum/epic.pdf").write_bytes(make_pdf(["Rama"]))
+    ws.read("curriculum/epic.pdf")
+    assert not any(f.startswith(".cache") for f in ws.list_files())
+    ws.commit("upload")
+    tracked = subprocess.run(["git", "ls-files"], cwd=ws.root, capture_output=True, text=True).stdout
+    assert ".cache" not in tracked
+    with pytest.raises(WorkspaceError):
+        ws.read(".cache/text/curriculum/epic.pdf.txt")
+
+
+def test_search_finds_text_inside_pdfs(ws):
+    (ws.root / "lessons/canto3/sources").mkdir(parents=True)
+    (ws.root / "lessons/canto3/sources/epic.pdf").write_bytes(make_pdf(["Intro", "Dasaratha grieves"]))
+    hits = ws.search("dasaratha")
+    assert [(h["path"], h["text"]) for h in hits] == [("lessons/canto3/sources/epic.pdf", "Dasaratha grieves")]
