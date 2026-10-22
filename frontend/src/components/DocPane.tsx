@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Brain, Check, ChevronDown, ChevronRight, Copy, FileText, Folder, FolderUp, Pencil, Printer, Upload, X } from 'lucide-react'
+import { ArrowLeft, Brain, Check, ChevronDown, ChevronRight, Copy, FileText, Folder, FolderUp, Maximize2, Minimize2, Pencil, Printer, Upload, X } from 'lucide-react'
 import { describeUpload, getFile, getFiles, saveFile, uploadFiles } from '../api'
 import type { Draft } from '../types'
 import { DocumentMarkdown } from './Markdown'
@@ -15,10 +15,24 @@ interface Props {
 }
 
 export default function DocPane({ path, onOpen, running, draft }: Props) {
+  // Full screen covers the chat so the whole document has room; Esc brings the chat back.
+  const [full, setFull] = useState(false)
+  const expanded = full && path !== null
+
+  useEffect(() => {
+    if (!expanded) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFull(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [expanded])
+
   return (
-    <aside className="w-[52%] min-w-[420px] flex-shrink-0 border-l border-slate-800 bg-slate-900 flex flex-col">
+    <aside className={expanded
+      ? 'fixed inset-0 z-50 bg-slate-900 flex flex-col'
+      : 'w-[52%] min-w-[420px] flex-shrink-0 border-l border-slate-800 bg-slate-900 flex flex-col'}>
       {path
-        ? <FileView path={path} onBack={() => onOpen(null)} running={running} live={draft?.path === path ? draft : null} />
+        ? <FileView path={path} onBack={() => { setFull(false); onOpen(null) }} running={running}
+            live={draft?.path === path ? draft : null} full={expanded} onToggleFull={() => setFull(f => !f)} />
         : <FileBrowser onOpen={onOpen} />}
     </aside>
   )
@@ -221,7 +235,9 @@ function prettyName(slug: string) {
 
 // ── Viewer / editor ────────────────────────────────────────────────────────────
 
-function FileView({ path, onBack, running, live }: { path: string; onBack: () => void; running: boolean; live: Draft | null }) {
+function FileView({ path, onBack, running, live, full, onToggleFull }: {
+  path: string; onBack: () => void; running: boolean; live: Draft | null; full: boolean; onToggleFull: () => void
+}) {
   const qc = useQueryClient()
   // A brand-new file 404s until MARTY finishes writing it; the live draft covers that gap.
   const { data, error } = useQuery({ queryKey: ['file', path], queryFn: () => getFile(path), retry: false })
@@ -300,6 +316,10 @@ function FileView({ path, onBack, running, live }: { path: string; onBack: () =>
             </button>
           </>
         )}
+        <button onClick={onToggleFull} className="btn btn-ghost btn-sm"
+          title={full ? 'Exit full screen (Esc)' : 'Full screen'} aria-label={full ? 'Exit full screen' : 'Full screen'}>
+          {full ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+        </button>
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto bg-slate-800/40 p-6">
