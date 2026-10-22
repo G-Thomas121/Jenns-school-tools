@@ -54,6 +54,17 @@ export const describeUpload = ({ saved, skipped, flagged }: UploadResult) =>
     flagged.length ? `${flagged.length} look scanned (little text)` : '',
   ].filter(Boolean).join(' · ')
 
+// Saves slides.md as a .pptx that Canva can import.
+export const downloadPptx = async (path: string) => {
+  const res = await fetch(`/api/files/export/pptx?path=${encodeURIComponent(path)}`)
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? 'Export failed')
+  const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? 'slides.pptx'
+  const url = URL.createObjectURL(await res.blob())
+  const a = Object.assign(document.createElement('a'), { href: url, download: name })
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 // ── Suggestions ────────────────────────────────────────────────────────────────
 export const getSuggestions = () => req<Suggestion[]>('/api/suggestions')
 export const createSuggestion = (data: { title: string; description: string }) => req<Suggestion>('/api/suggestions', { method: 'POST', ...body(data) })

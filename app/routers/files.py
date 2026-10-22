@@ -1,8 +1,9 @@
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 
+from app.services.slides_export import SlidesError, to_pptx
 from app.services.sources import UploadError, import_files
 from app.services.workspace import WorkspaceError, get_workspace
 
@@ -59,3 +60,21 @@ def upload(
     else:
         ws.commit(f"Upload {len(saved)} files to {result['indexes'][0].rsplit('/', 1)[0]}")
     return result
+
+
+PPTX_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+
+
+@router.get("/export/pptx")
+def export_pptx(path: str):
+    """A slides.md outline as a PowerPoint file, ready to import into Canva."""
+    try:
+        data = to_pptx(get_workspace().read(path))
+    except WorkspaceError as e:
+        raise HTTPException(404 if "not found" in str(e) else 400, str(e))
+    except SlidesError as e:
+        raise HTTPException(400, str(e))
+    parts = Path(path).parts
+    name = f"{parts[1]}-{Path(path).stem}" if len(parts) > 2 and parts[0] == "lessons" else Path(path).stem
+    return Response(data, media_type=PPTX_TYPE,
+                    headers={"Content-Disposition": f'attachment; filename="{name}.pptx"'})

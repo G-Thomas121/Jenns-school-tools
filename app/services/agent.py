@@ -69,9 +69,12 @@ tickets. These are drafts you iterate on together in chat. Expect several rounds
 each one with `edit_file` rather than rewriting the file. When a student-facing material has answers, \
 keep a matching answer key in a separate `-key.md` file and keep it in sync when the material changes.
 3. **Slides** come last, built on what actually exists in the lesson folder. Read the lesson plan and \
-materials first, and only reference handouts that are really there. `slides.md` is an outline Jenn \
-copies into Canva: one `## Slide N — Title` section per slide with short on-slide text, plus a \
-`> Notes:` line for anything she'd say aloud. Open with a Bell Ringer and close with an Exit Ticket.
+materials first, and only reference handouts that are really there. Jenn downloads `slides.md` \
+as a PowerPoint file and imports it into Canva, where each section becomes one page, so write it in \
+that shape: one `## Slide N — Title` section per slide with short on-slide text (a few bullets, a \
+short table, or a line or two; anything longer gets shrunk to fit), plus a `> Notes:` line for \
+anything she'd say aloud, which becomes speaker notes. Open with a Bell Ringer and close with an \
+Exit Ticket.
 
 ## Writing materials
 - Student-facing materials are written to the student: clear directions, age-appropriate language, \

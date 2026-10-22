@@ -207,3 +207,29 @@ def test_finished_run_publishes_done(client, monkeypatch):
         assert q.get_nowait() == {"type": "done"}
     finally:
         broker.unsubscribe(conv["id"], q)
+
+
+# ── Slide export ───────────────────────────────────────────────────────────────
+
+def test_slides_export_downloads_a_pptx_named_for_the_lesson(client, workspace):
+    workspace.write("lessons/ramayana-canto3/slides.md", "## Slide 1 — Bell Ringer\n- Write for 3 minutes\n")
+    r = client.get("/api/files/export/pptx", params={"path": "lessons/ramayana-canto3/slides.md"})
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    assert 'filename="ramayana-canto3-slides.pptx"' in r.headers["content-disposition"]
+    assert r.content[:2] == b"PK"
+
+
+@pytest.mark.parametrize("path,status", [
+    ("lessons/missing/slides.md", 404),
+    ("../outside.md", 400),
+])
+def test_slides_export_errors(client, path, status):
+    assert client.get("/api/files/export/pptx", params={"path": path}).status_code == status
+
+
+def test_slides_export_explains_a_file_with_no_slides(client, workspace):
+    workspace.write("lessons/a/plan.md", "# Plan\nNo slides here")
+    r = client.get("/api/files/export/pptx", params={"path": "lessons/a/plan.md"})
+    assert r.status_code == 400
+    assert "## Slide" in r.json()["detail"]

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Brain, Check, ChevronDown, ChevronRight, Copy, FileText, Folder, FolderUp, Maximize2, Minimize2, Pencil, Printer, Upload, X } from 'lucide-react'
-import { describeUpload, getFile, getFiles, saveFile, uploadFiles } from '../api'
+import { ArrowLeft, Brain, Check, ChevronDown, ChevronRight, Copy, FileText, Folder, FolderUp, Maximize2, Minimize2, Pencil, Presentation, Printer, Upload, X } from 'lucide-react'
+import { describeUpload, downloadPptx, getFile, getFiles, saveFile, uploadFiles } from '../api'
 import type { Draft } from '../types'
 import { DocumentMarkdown } from './Markdown'
 
@@ -307,6 +307,15 @@ function FileView({ path, onBack, running, live, full, onToggleFull }: {
               {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copied' : 'Copy'}
             </button>
             <button onClick={() => window.print()} disabled={!data} className="btn btn-ghost btn-sm"><Printer size={13} /> Print</button>
+            {path.endsWith('slides.md') && (
+              <button
+                onClick={() => downloadPptx(path).catch((e: Error) => alert(e.message))} disabled={!data}
+                className="btn btn-ghost btn-sm"
+                title="Download as PowerPoint. In Canva, drag the file onto the home page (or Create a design → Import file) to get an editable design."
+              >
+                <Presentation size={13} /> Canva (.pptx)
+              </button>
+            )}
           </>
         ) : (
           <>
